@@ -1,0 +1,352 @@
+---
+title: "FHIR Basics"
+description: "Learn the FHIR standard that underpins all Medplum data — resources, references, identifiers, and search."
+keywords: ["fhir", "resources", "references", "identifiers", "bundles", "search", "codeableconcept"]
+---
+
+## What is FHIR?
+
+**FHIR** (Fast Healthcare Interoperability Resources, pronounced "fire") is the HL7 standard for exchanging healthcare information electronically. Medplum stores all clinical data using FHIR R4.
+
+Using FHIR gives you two key benefits:
+
+- **Interoperability**: Healthcare partners — payers, labs, pharmacies, EHRs — increasingly expose their data via FHIR APIs. Storing your data in FHIR format smooths the path to integrating with multiple partners without a data migration.
+- **Future-proofing**: The FHIR spec anticipates the complexities of the healthcare domain. Many digital health companies end up performing costly backend rewrites when they hit edge cases in identity, relationships, or billing. FHIR addresses these up front.
+
+For the full specification, see the [official FHIR R4 documentation](https://hl7.org/fhir/R4/).
+
+## Resources
+
+The core data object in FHIR is called a **Resource**. You can think of resources as objects in object-oriented languages.
+
+FHIR defines over 150 resource types that model healthcare concepts — both concrete entities (`Patient`, `Medication`, `Device`) and abstract concepts (`Procedure`, `CarePlan`, `Encounter`).
+
+Each field in a resource is called an **Element**, which can be a primitive type (`string`, `date`, `boolean`) or a complex type (`HumanName`, `Address`, `CodeableConcept`).
+
+All resources have an `id` element — a server-assigned UUID that serves as the primary key.
+
+### Resource anatomy
+
+Every FHIR resource shares a common structure:
+
+```json
+{
+  "resourceType": "Patient",
+  "id": "example-patient-id",
+  "meta": {
+    "versionId": "1",
+    "lastUpdated": "2024-01-15T10:30:00Z",
+    "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+  },
+  "text": {
+    "status": "generated",
+    "div": "<div>Jane Smith</div>"
+  },
+  "extension": [
+    {
+      "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race",
+      "extension": [
+        { "url": "text", "valueString": "White" }
+      ]
+    }
+  ],
+  "identifier": [
+    {
+      "system": "http://hospital.example.org/mrn",
+      "value": "MRN-00123"
+    }
+  ],
+  "name": [
+    {
+      "use": "official",
+      "family": "Smith",
+      "given": ["Jane", "Marie"]
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1990-06-15"
+}
+```
+
+| Field | Description |
+|---|---|
+| `resourceType` | The resource type name (acts as the "class name") |
+| `id` | Server-assigned UUID — the primary key |
+| `meta` | Server metadata: version, last updated, profile URLs |
+| `text` | Human-readable narrative summary |
+| `extension` | Non-standard fields modeled as typed URL/value pairs |
+| `identifier` | Business identifiers from external systems (MRN, SSN, etc.) |
+
+### Common resource types
+
+| Resource | Description |
+|---|---|
+| `Patient` | A person receiving healthcare |
+| `Practitioner` | A person involved in providing healthcare (physician, nurse, etc.) |
+| `Organization` | A hospital, clinic, lab, payer, or other entity |
+| `Encounter` | An interaction between a patient and a provider (visit, call, admission) |
+| `Observation` | A measurement or assertion — vital signs, lab results, social history |
+| `Condition` | A clinical condition, problem, diagnosis, or concern |
+| `MedicationRequest` | An order for a medication — a prescription |
+
+## References between resources
+
+Clinical data is distributed across multiple resources. A prescription involves a patient, a prescribing practitioner, and a medication. FHIR uses **Reference** elements to link resources together — analogous to foreign keys in a relational database.
+
+A reference has the structure `"ResourceType/id"`:
+
+```json
+{
+  "resourceType": "MedicationRequest",
+  "id": "medrx002",
+  "status": "active",
+  "intent": "order",
+  "subject": {
+    "reference": "Patient/pat1",
+    "display": "Donald Duck"
+  },
+  "requester": {
+    "reference": "Practitioner/f007",
+    "display": "Patrick Pump"
+  },
+  "medicationCodeableConcept": {
+    "coding": [
+      {
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "code": "1049502",
+        "display": "12 HR Oxycodone Hydrochloride 80 MG Extended Release Oral Tablet"
+      }
+    ]
+  },
+  "dosageInstruction": [
+    {
+      "text": "Take one tablet daily as directed"
+    }
+  ]
+}
+```
+
+In Medplum, references within a project are always resolvable via the FHIR API. Cross-project references are not permitted — each resource can only reference resources inside the same project.
+
+## Identifiers vs IDs
+
+FHIR makes an important distinction between two types of identifiers:
+
+**`id`** is the server-assigned UUID. It is the primary key on the Medplum server and is assigned at creation time. You use it in API calls: `GET /fhir/R4/Patient/abc-123`.
+
+**`identifier`** is an array of business identifiers from external systems. A single patient can simultaneously have a Social Security Number, a Medical Record Number from one hospital, and a different MRN from another hospital.
+
+Each identifier is a `(system, value)` pair where `system` is an absolute URL acting as a globally unique namespace:
+
+```json
+{
+  "resourceType": "Patient",
+  "id": "j_chalmers",
+  "name": [
+    {
+      "use": "official",
+      "family": "Chalmers",
+      "given": ["Peter", "James"]
+    }
+  ],
+  "identifier": [
+    {
+      "system": "http://hl7.org/fhir/sid/us-ssn",
+      "value": "011-11-1234"
+    },
+    {
+      "system": "http://hospital-1.org/mrn",
+      "value": "MRN-12345678"
+    },
+    {
+      "system": "http://hospital-2.org/mrn",
+      "value": "0987AZ6"
+    }
+  ]
+}
+```
+
+<Tip>
+  When integrating with external systems, store their native IDs in the `identifier` array. This lets you look up resources by external ID without storing a separate mapping table. Use the `identifier` search parameter: `GET /fhir/R4/Patient?identifier=http://hospital-1.org/mrn|MRN-12345678`.
+</Tip>
+
+## CodeableConcepts
+
+Healthcare uses many standardized coding systems — ICD-10 for diagnoses, SNOMED CT for clinical findings, LOINC for lab observations, RxNorm for medications. The same clinical concept often has codes in multiple systems.
+
+FHIR handles this with the `CodeableConcept` type, which consists of:
+
+- A `text` element — the concept in plain language
+- A `coding` array — one or more `(system, code, display)` triples
+
+```json
+{
+  "resourceType": "Observation",
+  "id": "blood-pressure-example",
+  "status": "final",
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "55284-4",
+        "display": "Blood pressure systolic and diastolic"
+      }
+    ],
+    "text": "Blood pressure"
+  },
+  "subject": {
+    "reference": "Patient/pat1"
+  },
+  "component": [
+    {
+      "code": {
+        "coding": [
+          { "system": "http://loinc.org", "code": "8480-6", "display": "Systolic blood pressure" }
+        ]
+      },
+      "valueQuantity": {
+        "value": 120,
+        "unit": "mmHg",
+        "system": "http://unitsofmeasure.org",
+        "code": "mm[Hg]"
+      }
+    },
+    {
+      "code": {
+        "coding": [
+          { "system": "http://loinc.org", "code": "8462-4", "display": "Diastolic blood pressure" }
+        ]
+      },
+      "valueQuantity": {
+        "value": 80,
+        "unit": "mmHg",
+        "system": "http://unitsofmeasure.org",
+        "code": "mm[Hg]"
+      }
+    }
+  ]
+}
+```
+
+## Bundles and transactions
+
+A **Bundle** is a container for multiple FHIR resources. Bundles are used for:
+
+- **Search results**: The server returns a Bundle of matching resources
+- **Transactions**: Submit multiple creates/updates/deletes atomically
+- **Document composition**: Group related resources into a clinical document
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:patient-temp-id",
+      "resource": {
+        "resourceType": "Patient",
+        "name": [{ "family": "Smith", "given": ["Jane"] }]
+      },
+      "request": {
+        "method": "POST",
+        "url": "Patient"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:condition-temp-id",
+      "resource": {
+        "resourceType": "Condition",
+        "subject": { "reference": "urn:uuid:patient-temp-id" },
+        "code": {
+          "coding": [
+            { "system": "http://snomed.info/sct", "code": "44054006", "display": "Diabetes mellitus type 2" }
+          ]
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Condition"
+      }
+    }
+  ]
+}
+```
+
+<Info>
+  In a transaction Bundle, all entries succeed or all fail together. References between entries (using `urn:uuid:` temporary IDs) are resolved by the server after all resources are created.
+</Info>
+
+## Search basics
+
+FHIR provides a REST API for querying resources. Resources cannot be searched by arbitrary fields — the specification defines specific **search parameters** for each resource type.
+
+Common search patterns:
+
+```
+GET /fhir/R4/Patient?family=Smith
+GET /fhir/R4/Patient?birthdate=1990-06-15
+GET /fhir/R4/Observation?subject=Patient/pat1&code=http://loinc.org|55284-4
+GET /fhir/R4/Patient?identifier=http://hospital-1.org/mrn|MRN-12345678
+```
+
+**Common search modifiers:**
+
+| Modifier | Example | Description |
+|---|---|---|
+| `_count` | `_count=20` | Limit results per page |
+| `_sort` | `_sort=-_lastUpdated` | Sort field (prefix `-` for descending) |
+| `_include` | `_include=MedicationRequest:subject` | Include referenced resources in the Bundle |
+| `_summary` | `_summary=true` | Return summary fields only |
+
+In Medplum's TypeScript SDK, use `searchResources` to query a resource type with typed results:
+
+```typescript
+const observations = await medplum.searchResources('Observation', {
+  subject: 'Patient/pat1',
+  code: 'http://loinc.org|8480-6',
+  _sort: '-date',
+  _count: '25',
+});
+```
+
+## Subscriptions
+
+FHIR has a built-in **Subscription** resource for push-based notifications. A subscription has two parts:
+
+- **`criteria`**: A FHIRPath expression defining which resource changes to listen to
+- **`channel`**: The delivery mechanism (`rest-hook`, `websocket`, `email`, or `message`)
+
+```json
+{
+  "resourceType": "Subscription",
+  "status": "active",
+  "reason": "Notify on new DiagnosticReport",
+  "criteria": "DiagnosticReport?status=final",
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "https://your-server.example.com/webhook",
+    "payload": "application/fhir+json"
+  }
+}
+```
+
+<Tip>
+  In Medplum, you can use a **Bot** as the endpoint of a `rest-hook` subscription. This lets you run arbitrary TypeScript in response to FHIR resource changes without managing webhook infrastructure. See the [Bots documentation](/bots/index) for details.
+</Tip>
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Make your first FHIR API call with the Medplum SDK.
+  </Card>
+  <Card title="Bots" icon="bolt" href="/bots/index">
+    Automate workflows triggered by FHIR Subscriptions.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/auth/index">
+    Configure project auth, access policies, and user profiles.
+  </Card>
+  <Card title="Introduction" icon="house" href="/introduction">
+    Overview of all Medplum components and architecture.
+  </Card>
+</Columns>

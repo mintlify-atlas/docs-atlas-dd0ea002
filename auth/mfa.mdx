@@ -1,0 +1,113 @@
+---
+title: "Multi-Factor Authentication"
+description: "Enable TOTP-based multi-factor authentication for Medplum users to meet HIPAA and enterprise security requirements."
+---
+
+Multi-factor authentication (MFA) adds a second verification step beyond a password. Medplum supports **Time-based One-Time Password (TOTP)** authentication, compatible with standard authenticator apps:
+
+- Google Authenticator
+- Microsoft Authenticator
+- Authy
+- 1Password, Bitwarden, and other TOTP-capable password managers
+
+<Note>
+MFA is only prompted during username/password login. Users authenticating through an external identity provider use that provider's own MFA controls.
+</Note>
+
+## User self-enrollment
+
+Users can enroll themselves in MFA through the Medplum App security settings.
+
+<Steps>
+  <Step title="Open the Security page">
+    Navigate to [app.medplum.com/security](https://app.medplum.com/security). You'll see a **Multi Factor Auth** section showing your current enrollment status.
+  </Step>
+  <Step title="Click Enroll">
+    If you are not yet enrolled, click the **Enroll** button. A QR code will appear.
+  </Step>
+  <Step title="Scan with your authenticator app">
+    Open your authenticator app and scan the QR code to add the account.
+  </Step>
+  <Step title="Enter the verification code">
+    Enter the 6-digit code shown in your authenticator app to complete enrollment.
+  </Step>
+</Steps>
+
+Once enrolled, you will be required to enter your MFA code at every login. Your security page will show **Enrolled: true**.
+
+To disable MFA, click **Disable MFA** on the security page — you'll need to enter your current MFA code to confirm.
+
+## Requiring MFA for users you invite
+
+Project admins can require users to set up MFA as part of the invitation process by setting `mfaRequired: true` in the invite request.
+
+When a user is invited with `mfaRequired: true`:
+
+1. A TOTP secret is automatically generated for them.
+2. On first login, after entering their password, they are prompted to complete MFA enrollment.
+3. They cannot access the project until enrollment is complete.
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```typescript
+    await medplum.invite('PROJECT_ID', {
+      resourceType: 'Practitioner',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      email: 'jane.doe@example.com',
+      mfaRequired: true,
+    });
+    ```
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    medplum post admin/projects/:projectId/invite \
+    '{
+      "resourceType": "Practitioner",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "jane.doe@example.com",
+      "mfaRequired": true
+    }'
+    ```
+  </Tab>
+  <Tab title="cURL">
+    ```bash
+    curl https://api.medplum.com/admin/projects/:projectId/invite \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "resourceType": "Practitioner",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "email": "jane.doe@example.com",
+        "mfaRequired": true
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+For full details on the invite payload, see the [Invite User API reference](https://www.medplum.com/docs/api/project-admin/invite).
+
+## MFA in your application UI
+
+For React apps, Medplum's [`SignInForm`](https://storybook.medplum.com/?path=/story/medplum-auth-signinform--basic) component handles all MFA scenarios automatically:
+
+- **Enrollment screen** — when a user needs to enroll (e.g., invited with `mfaRequired: true`), `SignInForm` displays the QR code and verification step.
+- **Verification prompt** — for already-enrolled users, `SignInForm` shows the code input field after password verification.
+
+Using `SignInForm` is the recommended approach — it keeps your code minimal and automatically adapts to future MFA changes in Medplum.
+
+## Recovery and reset
+
+If a user loses access to their authenticator app, a project admin can reset their MFA enrollment:
+
+1. Navigate to [app.medplum.com/admin/users](https://app.medplum.com/admin/users).
+2. Select the affected user.
+3. Use the admin controls to disable MFA for that user.
+
+The user can then re-enroll using the self-enrollment steps above, or be re-invited with `mfaRequired: true` to be walked through enrollment again.
+
+<Warning>
+Resetting a user's MFA removes their second factor. Confirm the user's identity through another channel (e.g., a video call or a verified email) before performing a reset.
+</Warning>

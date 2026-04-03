@@ -1,0 +1,115 @@
+---
+title: "Compliance Overview"
+description: "Medplum is designed for healthcare compliance — HIPAA, SOC 2 Type II, ONC, HITRUST, and more."
+---
+
+Compliance is a shared responsibility. Medplum provides the platform controls, certifications, and documentation to support your compliance obligations — but your organization is responsible for how you configure, operate, and use the system.
+
+This section describes the compliance frameworks Medplum supports, the controls Medplum maintains, and the materials available to help you meet your own requirements.
+
+<Note>
+  Compliance materials are publicly available where possible. For documents subject to NDA or partner agreements, contact [hello@medplum.com](mailto:hello@medplum.com) to request access.
+</Note>
+
+## Supported frameworks
+
+<CardGroup cols={2}>
+  <Card title="HIPAA" icon="shield-halved" href="/compliance/hipaa">
+    Medplum is HIPAA compliant and will sign a Business Associate Agreement (BAA) with covered entities and business associates.
+  </Card>
+  <Card title="SOC 2 Type II" icon="badge-check" href="/compliance/soc2">
+    Medplum holds SOC 2 Type II certification covering the Security, Availability, and Confidentiality trust service criteria.
+  </Card>
+  <Card title="ONC Certification" icon="hospital" href="https://www.healthit.gov/topic/certification-ehrs/about-onc-health-it-certification-program">
+    Medplum is ONC certified, supporting interoperability requirements for health IT systems operating in the US.
+  </Card>
+  <Card title="HITRUST" icon="lock" href="https://hitrustalliance.net/">
+    Medplum supports HITRUST-aligned security controls for organizations pursuing HITRUST certification.
+  </Card>
+  <Card title="ISO 27001" icon="globe" href="https://www.iso.org/isoiec-27001-information-security.html">
+    ISO 27001 certification is in progress. Medplum maintains an information security management system aligned with ISO 27001 controls.
+  </Card>
+  <Card title="CFR Part 11" icon="flask" href="https://www.ecfr.gov/current/title-21/chapter-I/subchapter-A/part-11">
+    Medplum supports electronic records and signatures requirements under 21 CFR Part 11 for clinical and research applications.
+  </Card>
+  <Card title="CLIA/CAP" icon="microscope" href="https://www.cms.gov/clia">
+    Materials available to support CLIA/CAP accreditation for laboratory environments built on Medplum.
+  </Card>
+  <Card title="ISO 9001" icon="circle-check" href="https://www.iso.org/iso-9001-quality-management.html">
+    Medplum maintains quality management system documentation aligned with ISO 9001 principles.
+  </Card>
+</CardGroup>
+
+## Shared responsibility model
+
+Compliance obligations are divided between Medplum and your organization.
+
+<AccordionGroup>
+  <Accordion title="What Medplum is responsible for">
+    - Infrastructure security (physical data center security, network controls, patch management for managed services)
+    - Platform-level encryption at rest and in transit
+    - SOC 2 Type II audit and certification maintenance
+    - HIPAA compliance of the Medplum hosted platform
+    - ONC certification maintenance
+    - Audit logging infrastructure (server-level `AuditEvent` generation)
+    - Availability and disaster recovery of the hosted platform
+    - Business Associate Agreement execution with customers
+  </Accordion>
+  <Accordion title="What your organization is responsible for">
+    - Access control configuration (who can access which data in your project)
+    - User authentication strength (MFA enforcement, password policies)
+    - Application-level audit log review and retention policies
+    - Data classification and handling in your application
+    - HIPAA training and policies for your workforce
+    - Breach notification procedures
+    - Compliance with regulations specific to your use case (e.g., state privacy laws, CLIA if operating a lab)
+    - Self-hosted infrastructure security (if you are not using Medplum hosted)
+  </Accordion>
+</AccordionGroup>
+
+## Data protection
+
+### Encryption
+
+| Layer | Mechanism |
+|---|---|
+| Data in transit | TLS 1.2+ for all API and application traffic |
+| Data at rest (hosted) | AES-256 encryption on all storage (RDS, S3) |
+| Binary file access | CloudFront presigned URLs with time-limited access |
+| Self-hosted S3 | Optional SSE-C with customer-provided AES-256 key |
+
+### Audit logging
+
+Medplum generates FHIR `AuditEvent` resources for authentication events and RESTful operations. These can be:
+
+- Saved to the Medplum database (`saveAuditEvents: true`)
+- Written to your log infrastructure (`logAuditEvents: true`)
+- Streamed to a dedicated CloudWatch Log Group for long-term retention
+
+See [Server Configuration](/self-hosting/server-config) for the relevant settings.
+
+## Business Associate Agreement
+
+Medplum will execute a BAA with any covered entity or business associate using the Medplum hosted platform. To request a BAA, contact [hello@medplum.com](mailto:hello@medplum.com).
+
+<Note>
+  The BAA applies to the Medplum hosted environment. If you are self-hosting Medplum, you are operating the infrastructure and are responsible for your own HIPAA compliance controls. Medplum can still provide guidance and materials to support your compliance program.
+</Note>
+
+## Requesting compliance documentation
+
+The following materials are available on request:
+
+- SOC 2 Type II audit report
+- Penetration test results
+- BAA and MSA templates
+- Security overview documentation
+- Completed security questionnaires
+
+Contact [hello@medplum.com](mailto:hello@medplum.com) to request any of these materials.
+
+## Reference
+
+- [Medplum Trust Center on Vanta](https://app.vanta.com/medplum.com/trust/ybe9my9rkc6ok8yijm04h)
+- [Medplum Compliance project on GitHub](https://github.com/orgs/medplum/projects/17)
+- [Audit and logging pull requests on GitHub](https://github.com/medplum/medplum/pulls?q=is%3Apr+label%3Aaudit-logging)

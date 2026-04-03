@@ -1,0 +1,333 @@
+---
+title: "React Hooks"
+description: "Custom React hooks for accessing Medplum data and real-time subscriptions in your healthcare app."
+---
+
+`@medplum/react-hooks` provides the data-fetching and subscription hooks used throughout `@medplum/react`. You do not need to install it separately — it is included as a dependency of `@medplum/react` and all hooks are re-exported from the main package.
+
+```tsx
+// All hooks available from @medplum/react
+import { useMedplum, useMedplumContext, useResource, useSearch, useSubscription } from '@medplum/react';
+
+// Or import directly from the hooks package if you don't need UI components
+import { useMedplum, useResource } from '@medplum/react-hooks';
+```
+
+All hooks require your component tree to be wrapped in a [`MedplumProvider`](/react#setting-up-medplumprovider).
+
+---
+
+## useMedplum()
+
+Returns the `MedplumClient` instance from context. Use this to call any Medplum API method directly.
+
+**Signature**
+
+```tsx
+function useMedplum(): MedplumClient
+```
+
+**Example**
+
+```tsx
+import { useMedplum } from '@medplum/react';
+import { useState, useEffect } from 'react';
+import type { Patient } from '@medplum/fhirtypes';
+
+function PatientLoader({ id }: { id: string }): JSX.Element {
+  const medplum = useMedplum();
+  const [patient, setPatient] = useState<Patient | undefined>();
+
+  useEffect(() => {
+    medplum.readResource('Patient', id).then(setPatient);
+  }, [medplum, id]);
+
+  if (!patient) {
+    return <div>Loading...</div>;
+  }
+
+  return <div>{patient.name?.[0]?.text ?? patient.id}</div>;
+}
+```
+
+---
+
+## useMedplumContext()
+
+Returns the full Medplum context object, including the client, the current user profile, and the loading state.
+
+**Signature**
+
+```tsx
+function useMedplumContext(): MedplumContext
+
+interface MedplumContext {
+  medplum: MedplumClient;
+  navigate: (path: string) => void;
+  profile?: ProfileResource; // Patient | Practitioner | RelatedPerson
+  loading: boolean;
+}
+```
+
+**Example**
+
+```tsx
+import { useMedplumContext } from '@medplum/react';
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router';
+
+function AuthGuard({ children }: { children: React.ReactNode }): JSX.Element | null {
+  const { profile, loading } = useMedplumContext();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && !profile) {
+      navigate('/signin');
+    }
+  }, [loading, profile, navigate]);
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
+  if (!profile) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
+```
+
+<Note>
+  `useMedplumProfile()` is a convenience shortcut that returns `useMedplumContext().profile` directly. Use it when you only need the profile.
+</Note>
+
+---
+
+## useResource(reference)
+
+Fetches a FHIR resource by reference and caches the result. If the resource is already in the client cache, it is returned synchronously. Falls back to a network request when needed.
+
+**Signature**
+
+```tsx
+function useResource<T extends Resource>(
+  value: Reference<T> | Partial<T> | undefined,
+  setOutcome?: (outcome: OperationOutcome) => void
+): WithId<T> | undefined
+```
+
+**Parameters**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `value` | `Reference<T> \| Partial<T> \| undefined` | A FHIR reference object, an inline resource, or `undefined` |
+| `setOutcome` | `(outcome: OperationOutcome) => void` | Optional callback for error handling |
+
+**Returns** — The resolved resource, or `undefined` while loading or if the reference is invalid.
+
+**Example**
+
+```tsx
+import { useResource } from '@medplum/react';
+import type { Patient } from '@medplum/fhirtypes';
+
+function PatientName({ patientId }: { patientId: string }): JSX.Element {
+  const patient = useResource<Patient>({ reference: `Patient/${patientId}` });
+
+  if (!patient) {
+    return <span>Loading...</span>;
+  }
+
+  const name = patient.name?.[0];
+  const displayName = [name?.given?.join(' '), name?.family].filter(Boolean).join(' ');
+
+  return <span>{displayName || patient.id}</span>;
+}
+```
+
+---
+
+## useSearch(resourceType, query)
+
+Executes a FHIR search and re-runs reactively whenever the query parameters change. Requests are debounced by 250 ms by default.
+
+**Signature**
+
+```tsx
+function useSearch<K extends ResourceType>(
+  resourceType: K,
+  query?: QueryTypes,
+  options?: SearchOptions
+): [Bundle<WithId<ExtractResource<K>>> | undefined, boolean, OperationOutcome | undefined]
+```
+
+**Parameters**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `resourceType` | `ResourceType` | The FHIR resource type to search |
+| `query` | `QueryTypes` | Search parameters as a string, object, or `URLSearchParams` |
+| `options.debounceMs` | `number` | Debounce delay in milliseconds (default: `250`) |
+| `options.enabled` | `boolean` | Set to `false` to skip the search (default: `true`) |
+
+**Returns** — A tuple of `[bundle, loading, outcome]`.
+
+**Example**
+
+```tsx
+import { useSearch } from '@medplum/react';
+
+function ActivePatientList(): JSX.Element {
+  const [bundle, loading, outcome] = useSearch('Patient', { active: 'true', _count: '20' });
+
+  if (loading) {
+    return <div>Loading patients...</div>;
+  }
+
+  if (outcome && outcome.issue?.[0]?.severity === 'error') {
+    return <div>Error: {outcome.issue[0].details?.text}</div>;
+  }
+
+  const patients = bundle?.entry?.map((e) => e.resource).filter(Boolean) ?? [];
+
+  return (
+    <ul>
+      {patients.map((patient) => (
+        <li key={patient!.id}>{patient!.name?.[0]?.text ?? patient!.id}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+Medplum also exports `useSearchOne` (returns a single resource) and `useSearchResources` (returns a plain array) for common patterns.
+
+---
+
+## useSubscription(criteria, callback)
+
+Creates a real-time WebSocket subscription on the Medplum server. The callback is invoked whenever a resource interaction matches the given FHIR search criteria. The subscription is automatically cleaned up when the component unmounts.
+
+All subscriptions within a single `MedplumClient` instance share one WebSocket connection.
+
+**Signature**
+
+```tsx
+function useSubscription(
+  criteria: string,
+  callback: (bundle: Bundle) => void,
+  options?: UseSubscriptionOptions
+): void
+
+type UseSubscriptionOptions = {
+  subscriptionProps?: Partial<Subscription>;
+  onWebSocketOpen?: () => void;
+  onWebSocketClose?: () => void;
+  onSubscriptionConnect?: (subscriptionId: string) => void;
+  onSubscriptionDisconnect?: (subscriptionId: string) => void;
+  onError?: (err: Error) => void;
+};
+```
+
+**Parameters**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `criteria` | `string` | A FHIR search criteria string (e.g. `'Observation?patient=Patient/123'`). Pass an empty string to temporarily unsubscribe. |
+| `callback` | `(bundle: Bundle) => void` | Called when a matching resource interaction occurs |
+| `options.subscriptionProps` | `Partial<Subscription>` | Additional properties to set on the created `Subscription` resource (e.g. interaction filter extensions) |
+| `options.onWebSocketOpen` | `() => void` | Called when the shared WebSocket connection opens |
+| `options.onWebSocketClose` | `() => void` | Called when the shared WebSocket connection closes |
+| `options.onSubscriptionConnect` | `(subscriptionId: string) => void` | Called with the subscription ID when this subscription is active on the server |
+| `options.onSubscriptionDisconnect` | `(subscriptionId: string) => void` | Called with the subscription ID when this subscription is disconnected |
+| `options.onError` | `(err: Error) => void` | Called when an error occurs |
+
+**Callback bundle structure**
+
+The `Bundle` passed to the callback contains two entries:
+- `bundle.entry[0].resource` — a `SubscriptionStatus` with the subscription reference
+- `bundle.entry[1].resource` — the resource that triggered the notification
+
+**Example: live lab results**
+
+```tsx
+import { useSubscription } from '@medplum/react';
+import { useState } from 'react';
+import type { Bundle, Observation, SubscriptionStatus } from '@medplum/fhirtypes';
+
+function LiveLabResults({ patientId }: { patientId: string }): JSX.Element {
+  const [results, setResults] = useState<Observation[]>([]);
+
+  useSubscription(
+    `Observation?patient=Patient/${patientId}&category=laboratory`,
+    (bundle: Bundle) => {
+      const observation = bundle.entry?.[1]?.resource as Observation | undefined;
+      if (observation) {
+        setResults((prev) => [observation, ...prev]);
+      }
+    }
+  );
+
+  return (
+    <ul>
+      {results.map((obs) => (
+        <li key={obs.id}>
+          {obs.code?.text} — {obs.valueQuantity?.value} {obs.valueQuantity?.unit}
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+**Example: connection lifecycle and catch-up on reconnect**
+
+```tsx
+import { useSubscription, useMedplum } from '@medplum/react';
+import { useState, useRef } from 'react';
+import type { Bundle, Communication } from '@medplum/fhirtypes';
+
+function ChatNotifications({ userId }: { userId: string }): JSX.Element {
+  const medplum = useMedplum();
+  const [count, setCount] = useState(0);
+  const [status, setStatus] = useState<'connected' | 'disconnected'>('disconnected');
+  const lastSeenRef = useRef<string | undefined>();
+
+  useSubscription(
+    `Communication?recipient=Practitioner/${userId}`,
+    (bundle: Bundle) => {
+      const msg = bundle.entry?.[1]?.resource as Communication | undefined;
+      if (msg) {
+        lastSeenRef.current = msg.sent;
+        setCount((n) => n + 1);
+      }
+    },
+    {
+      onWebSocketOpen: () => setStatus('connected'),
+      onWebSocketClose: () => setStatus('disconnected'),
+      onSubscriptionConnect: async (_subscriptionId: string) => {
+        // Fetch any messages missed while disconnected
+        if (lastSeenRef.current) {
+          const missed = await medplum.searchResources('Communication', {
+            recipient: `Practitioner/${userId}`,
+            _lastUpdated: `gt${lastSeenRef.current}`,
+          });
+          setCount((n) => n + missed.length);
+        }
+      },
+    }
+  );
+
+  return (
+    <div>
+      <span>Status: {status}</span>
+      <span>Unread messages: {count}</span>
+    </div>
+  );
+}
+```
+
+<Note>
+  WebSocket subscriptions require the `websocket-subscriptions` feature flag to be enabled on your Medplum project. Contact hello@medplum.com to enable it on hosted Medplum, or enable it via the super admin panel when self-hosting.
+</Note>

@@ -1,0 +1,142 @@
+---
+title: "Upgrading the Server"
+description: "How to safely upgrade your Medplum server to a new version, including database migrations."
+---
+
+Keeping your Medplum server up to date ensures you receive the latest security patches, new features, and performance improvements. This guide covers how to plan and execute an upgrade safely.
+
+<Warning>
+  **Do not skip minor versions.** Attempting to jump ahead (e.g., from v3.1.2 directly to v4.3.4) will cause your server to fail to start. Each minor version must be deployed in order.
+</Warning>
+
+## Before you begin
+
+- Review the [versioning policy](/self-hosting/upgrading-server) if you are unfamiliar with Medplum's semantic versioning.
+- Ensure you have access to monitor migration progress (see [Monitoring migration progress](#monitoring-migration-progress) below).
+- Have a staging environment ready to test the upgrade before applying it to production.
+
+## Upgrade process
+
+<Steps>
+  <Step title="Plan your upgrade path">
+    For each minor version between your current version and target version, you must deploy the latest patch release of that minor version and wait for all database migrations to complete before proceeding.
+
+    **Example: upgrading from v3.1.2 to v4.3.x**
+
+    ```
+    v3.1.2 → v3.3.0 → v4.0.4 → v4.1.12 → v4.2.6 → v4.3.x
+    ```
+
+    Check the [GitHub releases page](https://github.com/medplum/medplum/releases) to identify the correct patch versions for each step.
+  </Step>
+
+  <Step title="Handle breaking changes (major versions only)">
+    When crossing a major version boundary (e.g., v3.x.x → v4.x.x):
+
+    - Update your application code to handle breaking changes **before** deploying the new server version.
+    - Review the changelog for the target major version.
+    - Test your application against the new version in a staging environment.
+  </Step>
+
+  <Step title="Deploy to staging">
+    Apply the upgrade to a staging environment that mirrors production. Run your test suite and smoke tests. Verify integrations still work as expected.
+  </Step>
+
+  <Step title="Deploy to production">
+    For each step in your upgrade path:
+
+    1. Deploy the version using your standard deployment process (e.g., `medplum aws update-server` for ECS).
+    2. Monitor startup — the server automatically runs pre-deploy migrations during startup.
+    3. Wait for all migrations to complete successfully.
+    4. Verify the server is operating normally before proceeding to the next version.
+  </Step>
+</Steps>
+
+## Understanding database migrations
+
+Medplum uses two types of database migrations to minimize downtime.
+
+<AccordionGroup>
+  <Accordion title="Pre-deploy migrations">
+    - **When they run**: Automatically during server startup, before the server accepts traffic.
+    - **Duration**: Seconds.
+    - **Impact**: The server will not start if a pre-deploy migration fails.
+    - **Examples**: Adding columns, creating tables, other fast schema changes.
+  </Accordion>
+  <Accordion title="Post-deploy migrations">
+    - **When they run**: In the background after the server has started and is accepting traffic.
+    - **Duration**: Can take hours or days on large datasets.
+    - **Impact**: The server continues running normally while these execute.
+    - **Examples**: Adding indexes, reindexing data, backfilling new columns.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  It is safe to leave post-deploy migrations running. They are designed to execute without impacting server availability. Do not interrupt them unless instructed to by Medplum support.
+</Note>
+
+## Monitoring migration progress
+
+### Admin panel (v4.1.12+)
+
+Navigate to `/admin/super/asyncjob` in your Medplum app to view:
+
+- Currently running migrations
+- Migration progress and status
+- Completion timestamps
+
+### API
+
+Query `AsyncJob` resources with:
+- `type` = `data-migration`
+- `dataVersion` indicating the migration number
+
+```
+GET /fhir/R4/AsyncJob?type=data-migration
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server won't start after upgrade">
+    **Likely cause**: A pre-deploy migration failed.
+
+    **Solution**: Check server logs for specific error messages and resolve the underlying issue. Do not attempt to skip the failing migration.
+  </Accordion>
+  <Accordion title="Migration is taking too long">
+    **Likely cause**: A post-deploy migration is running on a large dataset.
+
+    **Solution**: Monitor progress via the admin panel. Post-deploy migrations are designed to run for extended periods without impacting availability. Do not restart the server to try to speed it up.
+  </Accordion>
+  <Accordion title="Server refuses to start with a version mismatch error">
+    **Likely cause**: You skipped a minor version.
+
+    **Solution**: Deploy the missing intermediate versions in order. Each minor version must be deployed sequentially.
+  </Accordion>
+</AccordionGroup>
+
+## Version compatibility
+
+- **Patch versions** (x.y.Z): Can be applied directly without migration concerns.
+- **Minor versions** (x.Y.z): Must be applied in sequence; cannot skip.
+- **Major versions** (X.y.z): Require application code updates for breaking changes before or alongside the server upgrade.
+
+## Rollback procedure
+
+Medplum does not support automatic rollback of database migrations. Before upgrading:
+
+1. Take a manual RDS snapshot immediately before each deployment step.
+2. Document the exact version you are rolling back from.
+3. If a rollback is needed, restore the snapshot and redeploy the previous server version.
+
+<Warning>
+  Rolling back a major version after a successful post-deploy migration has run may leave the database in an inconsistent state. Contact [Medplum support](mailto:support@medplum.com) before attempting a rollback in this scenario.
+</Warning>
+
+## Getting help
+
+If you encounter issues during an upgrade:
+
+1. Check the server logs for specific error messages.
+2. Review the [changelog](https://github.com/medplum/medplum/releases) for known issues with the target version.
+3. Contact [Medplum support](mailto:support@medplum.com) with your specific error details and upgrade path.

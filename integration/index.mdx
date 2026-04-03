@@ -1,0 +1,108 @@
+---
+title: "Integrations"
+description: "Connect Medplum to labs, pharmacies, payers, and EHR systems using HL7, FHIR, and pre-built integrations."
+---
+
+Medplum supports three integration tiers: first-party integrations with common medical systems, standard medical protocols (FHIR, HL7 v2, SMART-on-FHIR), and custom integrations built with Bots and the TypeScript SDK.
+
+## Core integration capabilities
+
+<Columns cols={2}>
+  <Card title="Medplum Agent" icon="server" href="/agent/index">
+    Bridge on-premise medical devices and legacy systems over HL7/MLLP, ASTM, and DICOM protocols to Medplum's cloud platform.
+  </Card>
+  <Card title="FHIRcast" icon="broadcast" href="/fhircast/index">
+    Synchronize clinical context in real time across applications using the FHIRcast STU3 standard.
+  </Card>
+  <Card title="HL7 v2 Interfacing" icon="arrows-left-right" href="/integration/hl7-interfacing">
+    Send, receive, and transform HL7 v2 messages (ADT, ORM, ORU, SIU) using the Medplum Bot framework and on-premise Agent.
+  </Card>
+  <Card title="SMART App Launch" icon="rocket" href="https://smarthealthit.org/smart-app-launch/">
+    Launch SMART on FHIR applications from Medplum with patient and encounter context, using SMART App Launch 2.0.
+  </Card>
+</Columns>
+
+## Pre-built integrations
+
+Medplum ships first-party integrations with the following systems:
+
+### Clinical systems
+
+| Integration | Type | Use case |
+|---|---|---|
+| [Epic Systems](https://www.epic.com/) | EHR | Read/write via FHIR R4 API |
+| [Health Gorilla](https://www.healthgorilla.com/) | Lab network / HIE | Lab orders, results, and integrated records |
+| [Zus Health](https://zushealth.com/) | HIE | Longitudinal patient records and analytics |
+| [Labcorp](https://www.labcorp.com/) | Diagnostics | Lab orders and results via Health Gorilla |
+| [Quest Diagnostics](https://www.questdiagnostics.com/) | Diagnostics | Lab orders and results via Health Gorilla |
+
+### Billing and RCM
+
+| Integration | Type | Use case |
+|---|---|---|
+| [Candid Health](https://www.joincandidhealth.com/) | RCM | Revenue cycle management and insurance eligibility |
+| [eFax](https://www.efax.com/) | Communications | Send and receive faxes via FHIR `Communication` resources |
+
+### Authentication and identity
+
+| Integration | Type | Use case |
+|---|---|---|
+| [Okta](https://www.okta.com/) | SSO | Provider single sign-on |
+| [Auth0](https://auth0.com/) | SSO | Provider and patient single sign-on |
+| Google Authentication | SSO | Provider and patient sign-in with Google |
+| [Entra (Azure AD)](https://learn.microsoft.com/en-us/entra/identity-platform) | SSO | Microsoft Entra provider and patient sign-on |
+
+### Data and observability
+
+| Integration | Type | Use case |
+|---|---|---|
+| [Datadog](https://www.datadoghq.com/) | Observability | Application performance monitoring |
+| [Snowflake](https://www.snowflake.com/) | Data warehouse | Synchronize FHIR data to a data warehouse |
+| [OpenAI](https://www.openai.com/) | AI | Large language model access |
+
+## Standard protocol integrations
+
+Medplum provides templates and playbooks for common healthcare data protocols:
+
+| Protocol | Category | Use case |
+|---|---|---|
+| HL7 v2 (MLLP) | EHR / devices | ADT, ORM, ORU, SIU feeds from legacy systems |
+| FHIR R4 | EHR | Read/write from FHIR-capable EHRs and payors |
+| SMART on FHIR | EHR | Context-aware app launch from EHR workflows |
+| FHIRcast | Radiology / EHR | Real-time clinical context synchronization |
+| Bulk FHIR | EHR / payor | Export FHIR data at scale for partners |
+| FHIR CMS 9115 | Payor | Provider directory for payor compliance |
+| SFTP | EHR / lab | File-based data synchronization |
+| OAuth2 | Identity | Plug in any OAuth2 identity provider |
+| C-CDA | EHR | Import and export clinical documents |
+
+## FHIR-based integration approach
+
+Medplum's API is a fully conformant FHIR R4 server. Any system that can speak FHIR can integrate with Medplum directly:
+
+- Use the [FHIR REST API](/api/fhir/overview) to create, read, update, and delete resources.
+- Use the [$export operation](/api/fhir/operations) to export large datasets for analytics or partner sharing.
+- Use [Subscriptions](/subscriptions/index) to trigger Bots or webhooks when resources change.
+- Use the [CLI](/cli/index) to manage resources and test connectivity.
+
+## C-CDA import and export
+
+Medplum supports Clinical Document Architecture (C-CDA) for exchanging structured clinical documents with EHRs:
+
+- Import C-CDA documents by posting them as a `DocumentReference` or `Binary` resource and processing them in a Bot.
+- Export C-CDA by generating structured documents from FHIR resources using the Bot framework.
+
+<Note>
+  C-CDA import and export typically requires a custom Bot to handle the mapping between the C-CDA document structure and FHIR resources. Refer to the [Bots documentation](/bots) for implementation patterns.
+</Note>
+
+## Building custom integrations
+
+Complex integrations are built by composing [Bots](/bots/index), [Subscriptions](/subscriptions/index), and the TypeScript SDK:
+
+- **Bot webhooks** — receive inbound calls from Stripe, Acuity, Cal.com, and any webhook-capable service.
+- **Bot cron jobs** — poll SFTP servers or external APIs on a schedule.
+- **PDF generation** — produce CMS 1500 forms, superbills, and clinical documents.
+- **FHIR operations** — build custom `$operation` endpoints backed by Bots.
+
+See the [integration features and fixes](https://github.com/medplum/medplum/pulls?q=is%3Apr+label%3Aintegration) on GitHub for the code powering many of these integrations.

@@ -1,0 +1,140 @@
+---
+title: "Bot basics"
+description: "Create, configure, and deploy your first Medplum Bot to automate clinical workflows."
+---
+
+This guide walks through the full lifecycle of a Medplum Bot: creating it, writing the handler, deploying it, and wiring it to a FHIR Subscription so it runs automatically.
+
+<Steps>
+  <Step title="Create a Bot in the app">
+    Navigate to the [Project Admin panel](https://app.medplum.com/admin/project) and click **Create new Bot**.
+
+    Fill in a **name** and optional **description**.     You can also assign an Access Policy to restrict what resources the Bot can read and write — by default Bots have full project access.
+
+    Click **Create Bot** and note the Bot `id` on the Details tab. You will need it in later steps.
+  </Step>
+
+  <Step title="Write the handler">
+    Open the Bot's **Editor** tab. Every Bot exports a single async `handler` function with this signature:
+
+    ```typescript
+    import { BotEvent, MedplumClient } from '@medplum/core';
+
+    export async function handler(medplum: MedplumClient, event: BotEvent): Promise<any> {
+      // Your logic here
+    }
+    ```
+
+    | Parameter | Type | Description |
+    |-----------|------|-------------|
+    | `medplum` | `MedplumClient` | Pre-authenticated SDK client scoped to your project |
+    | `event.input` | `Resource \| string \| Hl7Message \| Record<string, any>` | The resource or payload that triggered the Bot |
+    | `event.contentType` | `string` | Content type of the input (e.g. `application/fhir+json`) |
+    | `event.secrets` | `Record<string, ProjectSetting>` | Project secrets available to the Bot |
+    | `event.bot` | `Reference<Bot>` | Reference to the executing Bot resource |
+
+    Here is a complete example that reads an incoming `Patient`, logs their name, and creates a `Flag` resource:
+
+    ```typescript
+    import { BotEvent, MedplumClient } from '@medplum/core';
+    import { Flag, Patient } from '@medplum/fhirtypes';
+
+    export async function handler(medplum: MedplumClient, event: BotEvent): Promise<void> {
+      const patient = event.input as Patient;
+
+      const firstName = patient.name?.[0]?.given?.[0];
+      const lastName = patient.name?.[0]?.family;
+      console.log(`Processing patient: ${firstName} ${lastName}`);
+
+      // Create a Flag to mark the patient as needing review
+      const flag: Flag = await medplum.createResource<Flag>({
+        resourceType: 'Flag',
+        status: 'active',
+        subject: { reference: `Patient/${patient.id}` },
+        code: { text: 'Needs intake review' },
+      });
+
+      console.log('Created Flag:', flag.id);
+    }
+    ```
+
+    Click **Save** to persist the code to the Medplum database.
+  </Step>
+
+  <Step title="Deploy via CLI">
+    Saving in the editor does **not** deploy the Bot to the Lambda runtime. You must deploy separately.
+
+    **Option A — Deploy button:** Click the **Deploy** button in the Editor tab. Good for quick iteration.
+
+    **Option B — Medplum CLI (recommended for production):**
+
+    Add the Bot to your `medplum.config.json`:
+
+    ```json
+    {
+      "bots": [
+        {
+          "name": "my-bot",
+          "id": "<BOT_ID>",
+          "source": "src/my-bot.ts",
+          "dist": "dist/my-bot.js"
+        }
+      ]
+    }
+    ```
+
+    Then run:
+
+    ```bash
+    npx medplum bot deploy my-bot
+    ```
+
+    <Tip>
+      Integrate `medplum bot deploy` into your CI/CD pipeline so every merge to main automatically deploys updated Bot logic.
+    </Tip>
+  </Step>
+
+  <Step title="Create a Subscription trigger">
+    A [Subscription](/subscriptions/index) tells Medplum which resource changes should invoke the Bot.
+
+    Create a Subscription resource via the [Medplum App](https://app.medplum.com/Subscription) or via the API:
+
+    ```json
+    {
+      "resourceType": "Subscription",
+      "status": "active",
+      "reason": "Run my-bot on new or updated Patients",
+      "criteria": "Patient",
+      "channel": {
+        "type": "rest-hook",
+        "endpoint": "Bot/<BOT_ID>",
+        "payload": "application/fhir+json"
+      }
+    }
+    ```
+
+    Set `criteria` to any valid FHIR search string. For example, `Patient?active=true` limits triggers to active patients only.
+
+    <Note>
+      Subscriptions cannot use `AuditEvent` as criteria. Each Subscription trigger creates an AuditEvent, which would cause an infinite loop.
+    </Note>
+  </Step>
+
+  <Step title="Monitor execution">
+    Every Bot execution produces an `AuditEvent` resource. View recent executions:
+
+    - Open the Subscription in the [Medplum App](https://app.medplum.com/Subscription) and check the **Timeline** tab.
+    - Or browse [all AuditEvents](https://app.medplum.com/AuditEvent?_count=20&_fields=outcomeDesc,_lastUpdated,entity&_offset=0&_sort=-_lastUpdated) sorted by most recent.
+
+    The `AuditEvent.outcomeDesc` field contains any `console.log` output from the Bot handler, making it the primary debugging tool.
+
+    To test without waiting for a real resource change, click the **Execute** button in the Editor tab or POST to the `$execute` endpoint:
+
+    ```bash
+    curl -X POST "https://api.medplum.com/fhir/R4/Bot/<BOT_ID>/\$execute" \
+      -H "Authorization: Bearer <ACCESS_TOKEN>" \
+      -H "Content-Type: application/fhir+json" \
+      -d '{"resourceType":"Patient","name":[{"given":["Test"],"family":"Patient"}]}'
+    ```
+  </Step>
+</Steps>

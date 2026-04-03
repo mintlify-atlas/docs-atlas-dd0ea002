@@ -1,0 +1,177 @@
+---
+title: "Monitoring"
+description: "Monitor your Medplum deployment with OpenTelemetry, Datadog, and CloudWatch."
+---
+
+Proper monitoring is essential for maintaining the health and performance of a self-hosted Medplum deployment. This guide covers the key metrics to track, recommended alerting thresholds, and available tooling integrations.
+
+<Note>
+  Medplum's CDK templates provide the core application components but are intentionally unopinionated about observability tooling. The configuration described here is your responsibility to set up and maintain.
+</Note>
+
+## Metric sources
+
+Metrics are organized by layer from highest user impact to lowest. Start with higher-level metrics to spot issues; use lower-level metrics to diagnose root causes.
+
+| Source | Availability |
+|---|---|
+| Medplum server (OpenTelemetry) | All deployment environments |
+| Load balancer | Cloud load balancers (e.g. AWS ALB) |
+| Database | Any PostgreSQL installation |
+| Cache | Any Redis installation |
+| Container | Docker, Kubernetes, ECS, bare metal |
+
+## Server-level metrics
+
+These metrics come directly from Medplum server via OpenTelemetry and provide the most detailed view of application behavior. See the [OpenTelemetry configuration guide](/self-hosting/monitoring) for setup instructions.
+
+### Connection health
+
+| Metric name | What it measures |
+|---|---|
+| `medplum.db.healthcheckRTT` | Round-trip latency to PostgreSQL |
+| `medplum.redis.healthcheckRTT` | Round-trip latency to Redis |
+| `medplum.db.queriesAwaitingClient` | Queries waiting for a connection pool slot |
+| `medplum.node.usedHeapSize` | Node.js heap memory consumption |
+
+Spikes in RTT indicate connectivity or performance bottlenecks. Sustained values in `queriesAwaitingClient` mean the database is overwhelmed or the connection pool is exhausted. Monitor `usedHeapSize` for steady upward trends that might indicate memory leaks.
+
+### FHIR operations
+
+| Metric name | Operation |
+|---|---|
+| `medplum.fhir.interaction.read.count` | Read |
+| `medplum.fhir.interaction.search.count` | Search |
+| `medplum.fhir.interaction.create.count` | Create |
+| `medplum.fhir.interaction.update.count` | Update |
+| `medplum.fhir.interaction.delete.count` | Delete |
+
+Filter by `result="failure"` on any of the above metrics to get error rates by operation type. Some fluctuation is normal at low volume, but sustained increases warrant investigation.
+
+### Subscription processing
+
+| Metric name | What it measures |
+|---|---|
+| `medplum.subscription.waitingCount` | Subscriptions waiting to be processed |
+| `medplum.subscription.delayedCount` | Subscriptions that have been delayed |
+
+High queue depths correlate with database performance issues — subscriptions generate audit events that require database writes.
+
+## Load balancer metrics
+
+Load balancer metrics reflect actual user experience more accurately than server-side measurements.
+
+### Traffic and performance
+
+- **Request count**: Compare with server metrics to identify routing discrepancies.
+- **Response time**: Track P50 and P99, not just the average. P99 surfaces tail latency that affects a meaningful number of users.
+
+### Error rates
+
+Monitor HTTP 4xx and 5xx response counts. Pay particular attention to **504 timeout errors**: these occur when the server takes too long to respond and the load balancer returns an error even if the server eventually completes the operation.
+
+<Warning>
+  Set up an alert for 504 errors with a threshold of approximately 3 per minute. A sustained stream of 504s indicates the server or database is under significant stress.
+</Warning>
+
+## Database metrics (PostgreSQL)
+
+### Resource usage
+
+- **CPU utilization (writer)**: Keep the writer instance below 60–70%. There is only one writer — it is a single point of failure. Reader instances can run hotter because you can scale horizontally.
+- **Connection count**: PostgreSQL creates roughly one process per connection. Monitor to avoid resource exhaustion as you scale horizontally.
+
+### Query efficiency
+
+| Metric | What to watch for |
+|---|---|
+| Tuples read vs. fetched | When scanned significantly exceeds fetched, queries are discarding rows — missing indexes or inefficient queries |
+| Transactions per second | Spike in rollbacks usually indicates a problem |
+
+## Cache metrics (Redis)
+
+### Performance
+
+- **Memory usage**: Directly proportional to stored data, since Redis is an in-memory store.
+- **Cache hit/miss ratio**: Unusual miss spikes may indicate application bugs or invalid reference patterns.
+
+### Evictions
+
+Evictions occur when Redis runs out of memory and removes least-recently-used items. Occasional evictions are not catastrophic if the working set fits in cache, but they should not be a regular occurrence.
+
+<Warning>
+  Alert on evictions > 0 as an early warning of capacity pressure. Sustained evictions degrade performance and can cause difficult-to-diagnose application behavior.
+</Warning>
+
+## Container metrics
+
+### CPU — Node.js considerations
+
+Node.js is single-threaded for application code. A single fully-utilized CPU core means 100% application capacity. Use the following formula to set your alert threshold:
+
+```
+alert threshold = (1 / number_of_cpu_cores) * 100
+```
+
+Examples:
+
+| CPU cores | Alert threshold |
+|---|---|
+| 4 | 25% |
+| 8 | 12.5% |
+| 32 | 3% |
+
+When CPU exceeds this threshold, the Node.js event loop is saturated and additional requests will queue up, causing exponential performance degradation.
+
+### Memory and network
+
+- **Memory usage**: Useful for detecting leaks and planning capacity.
+- **Network I/O**: Supporting information for understanding traffic patterns and response sizes.
+
+## Alerting strategy
+
+### High-priority alerts
+
+Set up immediate, paging-level alerts for:
+
+- 500 error rates (especially load balancer 504s > 3/min)
+- Database writer CPU > 50–60% sustained for more than a few minutes
+- P50 and P99 response time increases beyond your established baselines
+
+### Supporting alerts
+
+Configure higher-threshold alerts for infrastructure metrics:
+
+- Container CPU (based on the core-count formula above)
+- Redis evictions > 0
+- Database connection count approaching the instance limit
+
+### Tuning recommendations
+
+<Tip>
+  Start with conservative (low) thresholds and adjust upward as you accumulate data. It is better to have frequent alerts early and tune them down than to miss real issues with thresholds set too high.
+</Tip>
+
+## Tooling options
+
+Common monitoring stacks that work well with Medplum:
+
+<Columns cols={3}>
+  <Card title="AWS-native" icon="cloud">
+    CloudWatch metrics, alarms, and dashboards. Minimal setup when running on AWS.
+  </Card>
+  <Card title="Open source" icon="code">
+    Grafana + Prometheus, Loki, and Tempo (LGTM stack). Full control with no vendor lock-in.
+  </Card>
+  <Card title="Commercial" icon="chart-line">
+    Datadog, New Relic, or Sumo Logic. Faster time-to-value with built-in integrations.
+  </Card>
+</Columns>
+
+## Monitoring best practices
+
+1. **Focus on user impact first.** Load balancer metrics give the most direct view of what users experience.
+2. **Use server metrics for rich diagnostics.** OpenTelemetry metrics from Medplum server provide the most detailed application-level data.
+3. **Treat infrastructure metrics as supporting information.** Database and container metrics are valuable for root cause analysis but tend to be too noisy for primary alerting.
+4. **Establish baselines before setting thresholds.** Self-hosted environments have different baseline characteristics than managed cloud deployments — understand your system's normal patterns first.
+5. **Log aggregation is not optional.** Centralized, searchable logs from all components are essential for post-incident analysis.

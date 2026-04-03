@@ -1,0 +1,132 @@
+---
+title: "Medplum CLI"
+description: "The Medplum CLI lets you interact with your Medplum project from the terminal — manage resources, deploy bots, and automate workflows."
+keywords: ["medplum", "cli", "command line", "fhir", "bots", "bulk export"]
+---
+
+The `@medplum/cli` package is a command-line interface for interacting with Medplum from the terminal. Use it to read and write FHIR resources, deploy bots, run bulk exports, and manage your projects — all without opening the app.
+
+## Installation
+
+Install globally to use `medplum` as a system-wide command:
+
+<CodeGroup>
+
+```bash npm
+npm install --global @medplum/cli
+```
+
+```bash yarn
+yarn global add @medplum/cli
+```
+
+```bash pnpm
+pnpm add --global @medplum/cli
+```
+
+</CodeGroup>
+
+Or install as a project dependency and run with `npx`:
+
+```bash
+npm install @medplum/cli
+npx medplum <command>
+```
+
+<Note>
+  The CLI requires Node.js `^22.18.0` or `>=24.2.0`. Run `node --version` to check your version.
+</Note>
+
+## Authentication
+
+Before running any command, authenticate with your Medplum account. The CLI supports three authentication methods:
+
+**1. Interactive login (recommended)**
+
+```bash
+medplum login
+```
+
+This opens a browser window for OAuth2 authorization. On success, credentials are saved to `~/.medplum/credentials` and reused on future commands.
+
+**2. Environment variables**
+
+Set `MEDPLUM_CLIENT_ID` and `MEDPLUM_CLIENT_SECRET` in your environment or in a `.env` file in your working directory. The CLI loads `.env` automatically via `dotenv`.
+
+```bash
+MEDPLUM_CLIENT_ID=your-client-id
+MEDPLUM_CLIENT_SECRET=your-client-secret
+```
+
+**3. Per-command flags**
+
+Pass credentials inline on any command:
+
+```bash
+medplum get Patient --client-id <id> --client-secret <secret>
+```
+
+By default the CLI targets the hosted Medplum API at `https://api.medplum.com`. To point at a self-hosted server, set the `MEDPLUM_BASE_URL` environment variable or use the `--base-url` flag.
+
+## Global flags
+
+These flags are available on every command:
+
+| Flag | Description |
+|---|---|
+| `--base-url <url>` | FHIR server base URL (must be absolute) |
+| `--fhir-url-path <path>` | FHIR URL path, absolute or relative to base URL |
+| `--token-url <url>` | Token endpoint URL |
+| `--authorize-url <url>` | Authorization endpoint URL |
+| `--client-id <id>` | OAuth2 client ID |
+| `--client-secret <secret>` | OAuth2 client secret |
+| `--access-token <token>` | Bearer token for token-exchange auth |
+| `--auth-type <type>` | Auth flow: `basic`, `client-credentials`, `authorization-code`, `jwt-bearer`, `jwt-assertion`, `token-exchange` |
+| `-p, --profile <name>` | Named profile to use for this command |
+| `-v, --verbose` | Print detailed error output |
+
+## Command categories
+
+<Columns cols={2}>
+  <Card title="FHIR resource operations" icon="database" href="/cli/commands#fhir-resource-operations">
+    Read, search, create, update, patch, and delete any FHIR resource using `get`, `post`, `put`, `patch`, and `delete`.
+  </Card>
+  <Card title="Bot management" icon="bolt" href="/cli/commands#bot-management">
+    Create, save, and deploy bots to your Medplum project using the `bot` subcommand.
+  </Card>
+  <Card title="Bulk data" icon="arrow-down-to-line" href="/cli/commands#bulk-data">
+    Export all project data as NDJSON or import NDJSON files using `bulk export` and `bulk import`.
+  </Card>
+  <Card title="Project management" icon="folder" href="/cli/commands#project">
+    List, switch, and invite users to projects using the `project` subcommand.
+  </Card>
+  <Card title="Profiles" icon="user" href="/cli/commands#profiles">
+    Store named connection profiles for multiple FHIR servers using `profile set`, `profile list`, and `profile describe`.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/cli/commands#authentication">
+    Log in, check your current identity, and retrieve access tokens with `login`, `whoami`, and `token`.
+  </Card>
+</Columns>
+
+## Quick reference
+
+| Command | Description |
+|---|---|
+| `medplum login` | Authenticate with Medplum |
+| `medplum whoami` | Show current user and project |
+| `medplum get <url>` | Read or search a FHIR resource |
+| `medplum post <url> <body>` | Create a FHIR resource |
+| `medplum put <url> <body>` | Update a FHIR resource |
+| `medplum patch <url> <body>` | Patch a FHIR resource |
+| `medplum delete <url>` | Delete a FHIR resource |
+| `medplum bot create <name> <projectId> <src> <dist>` | Create a new bot |
+| `medplum bot save <name>` | Save bot source code |
+| `medplum bot deploy <name>` | Deploy a bot |
+| `medplum bulk export` | Export all project data |
+| `medplum bulk import <file>` | Import NDJSON data |
+| `medplum project list` | List all your projects |
+| `medplum project switch <projectId>` | Switch active project |
+
+## Version compatibility
+
+The CLI version should match your Medplum server version. The current CLI version is **5.1.6**. Check the [Medplum changelog](https://github.com/medplum/medplum/releases) if you encounter unexpected behavior after upgrading.

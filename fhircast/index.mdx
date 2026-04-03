@@ -1,0 +1,213 @@
+---
+title: "FHIRcast"
+description: "Synchronize clinical context in real time across applications using the FHIRcast standard."
+---
+
+FHIRcast is a lightweight, topic-based publish/subscribe protocol that enables healthcare applications to synchronize context in real time. Medplum implements [FHIRcast STU3](https://build.fhir.org/ig/HL7/fhircast-docs/) and exposes a hub at `/fhircast/STU3`.
+
+## What is FHIRcast?
+
+FHIRcast is built on HTTP and WebSockets. It connects a **context source** (the application driving context changes, such as an EHR or PACS) with one or more **context subscribers** (applications that react to those changes, such as a CDS tool or billing system).
+
+When a clinician switches to a different patient in one application, FHIRcast notifies all subscribed applications so they can update their own views automatically — no manual navigation required.
+
+### Key concepts
+
+| Concept | Description |
+|---|---|
+| **Topic** | A unique channel (UUID) for a session. Applications subscribe and publish to the same topic. |
+| **Event** | A typed notification such as `Patient-open` or `ImagingStudy-close`. |
+| **Context source** | The application that publishes context changes (typically the primary EHR or PACS). |
+| **Context subscriber** | An application that listens for events and updates its own state accordingly. |
+| **Hub** | The broker that manages subscriptions and routes events. Medplum acts as the hub. |
+
+## Use cases
+
+- **EHR to SMART app**: An EHR publishes `Patient-open` events; a SMART on FHIR app automatically loads the selected patient's data.
+- **Clinical decision support**: A CDS tool subscribes to `Encounter-open` and retrieves relevant recommendations when a new encounter begins.
+- **PACS synchronization**: A PACS subscribes to patient or encounter context changes and loads the relevant imaging studies automatically.
+- **Multi-application workflows**: As a clinician moves between patients in one app, all connected applications (billing, lab order entry, etc.) switch context in sync.
+- **Radiology reporting**: A PACS publishes `DiagnosticReport-update` events containing `ImagingSelection` resources so a report creator always reflects the radiologist's current focus.
+
+## Supported events
+
+Medplum supports the following FHIRcast event names:
+
+| Event | Anchor resource | Description |
+|---|---|---|
+| `Patient-open` | `Patient` | A patient context was opened |
+| `Patient-close` | `Patient` | A patient context was closed |
+| `Encounter-open` | `Encounter` | An encounter context was opened |
+| `Encounter-close` | `Encounter` | An encounter context was closed |
+| `ImagingStudy-open` | `ImagingStudy` | An imaging study was opened |
+| `ImagingStudy-close` | `ImagingStudy` | An imaging study was closed |
+| `DiagnosticReport-open` | `DiagnosticReport` | A diagnostic report was opened |
+| `DiagnosticReport-close` | `DiagnosticReport` | A diagnostic report was closed |
+| `DiagnosticReport-select` | `DiagnosticReport` | A selection was made within an open report |
+| `DiagnosticReport-update` | `DiagnosticReport` | A report was updated (requires `context.version`) |
+| `syncerror` | — | A synchronization error occurred |
+
+## How Medplum implements FHIRcast
+
+Medplum acts as the FHIRcast hub. The hub URL is:
+
+```
+https://api.medplum.com/fhircast/STU3
+```
+
+For self-hosted deployments, replace the base URL accordingly.
+
+The `MedplumClient` exposes four FHIRcast methods:
+
+| Method | Description |
+|---|---|
+| `fhircastSubscribe(topic, events)` | Subscribe to one or more events on a topic |
+| `fhircastUnsubscribe(subRequest)` | Cancel an existing subscription |
+| `fhircastConnect(subRequest)` | Open a WebSocket connection and receive events |
+| `fhircastPublish(topic, event, context)` | Publish a context change to a topic |
+| `fhircastGetContext(topic)` | Get the current context for a topic |
+
+## Setting up a subscription
+
+<Steps>
+  <Step title="Choose or generate a topic">
+    A topic is a UUID that uniquely identifies a session. Generate one or use an existing session ID from your EHR or workflow orchestrator.
+
+    ```typescript
+    import { generateId } from '@medplum/core';
+
+    const topic = generateId(); // e.g. "a2b3c4d5-..."
+    ```
+  </Step>
+  <Step title="Subscribe to events">
+    Call `fhircastSubscribe` with the topic and the list of events you want to receive. This registers your subscription with the hub and returns a `SubscriptionRequest` object.
+
+    ```typescript
+    import MedplumClient from '@medplum/core';
+
+    const medplum = new MedplumClient();
+    await medplum.signInWithClientCredentials(clientId, clientSecret);
+
+    const subRequest = await medplum.fhircastSubscribe(topic, ['Patient-open', 'Patient-close']);
+    ```
+  </Step>
+  <Step title="Connect and listen for events">
+    Call `fhircastConnect` with the returned `SubscriptionRequest` to open a WebSocket connection to the hub. The returned `FhircastConnection` emits events as they arrive.
+
+    ```typescript
+    const connection = medplum.fhircastConnect(subRequest);
+
+    connection.addEventListener('message', (event) => {
+      const { 'hub.event': eventName, context } = event.data.event;
+      console.log('Received FHIRcast event:', eventName);
+
+      if (eventName === 'Patient-open') {
+        const patient = context.find((c) => c.key === 'patient')?.resource;
+        console.log('Patient opened:', patient?.id);
+      }
+    });
+
+    connection.addEventListener('open', () => {
+      console.log('FHIRcast connection established');
+    });
+
+    connection.addEventListener('close', () => {
+      console.log('FHIRcast connection closed');
+    });
+    ```
+  </Step>
+</Steps>
+
+## Publishing context changes
+
+Use `fhircastPublish` to notify all subscribers of a context change. The event payload must include the anchor resource for the event type.
+
+```typescript
+import { MedplumClient } from '@medplum/core';
+import type { Patient } from '@medplum/fhirtypes';
+
+const medplum = new MedplumClient();
+await medplum.signInWithClientCredentials(clientId, clientSecret);
+
+const patient: Patient = await medplum.readResource('Patient', patientId);
+
+await medplum.fhircastPublish(topic, 'Patient-open', [
+  {
+    key: 'patient',
+    resource: patient,
+  },
+]);
+```
+
+<Note>
+  The `DiagnosticReport-update` event requires a `context.version` field. Pass the version string returned by `fhircastGetContext` when publishing updates to ensure correct ordering.
+</Note>
+
+## Retrieving the current context
+
+Query the hub at any time to get the current context for a topic:
+
+```typescript
+const currentContext = await medplum.fhircastGetContext(topic);
+// Returns { context: [{ key: 'patient', resource: { ... } }] }
+```
+
+## Full example: subscriber that syncs patient context
+
+```typescript
+import { MedplumClient, generateId } from '@medplum/core';
+
+async function syncPatientContext(): Promise<void> {
+  const medplum = new MedplumClient({ baseUrl: 'https://api.medplum.com/' });
+  await medplum.signInWithClientCredentials(clientId, clientSecret);
+
+  // Use a shared topic known to all participating apps in this session
+  const topic = 'shared-session-topic-uuid';
+
+  // Subscribe to patient context events
+  const subRequest = await medplum.fhircastSubscribe(topic, ['Patient-open', 'Patient-close']);
+
+  // Open the WebSocket connection
+  const connection = medplum.fhircastConnect(subRequest);
+
+  connection.addEventListener('message', (event) => {
+    const fhircastEvent = event.data.event;
+    const eventName = fhircastEvent['hub.event'];
+    const context = fhircastEvent.context;
+
+    if (eventName === 'Patient-open') {
+      const patientEntry = context.find((c: { key: string }) => c.key === 'patient');
+      if (patientEntry?.resource) {
+        console.log('Switching to patient:', patientEntry.resource.id);
+        // Update your application's active patient here
+      }
+    } else if (eventName === 'Patient-close') {
+      console.log('Patient context closed');
+    }
+  });
+
+  // Cleanup on exit
+  process.on('SIGINT', async () => {
+    await medplum.fhircastUnsubscribe(subRequest);
+    process.exit(0);
+  });
+}
+
+syncPatientContext();
+```
+
+## Hub URL
+
+The Medplum FHIRcast hub is available at:
+
+| Deployment | Hub URL |
+|---|---|
+| Medplum cloud | `https://api.medplum.com/fhircast/STU3` |
+| Self-hosted | `<baseUrl>/fhircast/STU3` |
+| Local development | `http://localhost:8103/fhircast/STU3` |
+
+## Related
+
+- [FHIRcast STU3 specification](https://build.fhir.org/ig/HL7/fhircast-docs/)
+- [SMART App Launch](https://smarthealthit.org/smart-app-launch/)
+- [Medplum Integrations](/integration/index)

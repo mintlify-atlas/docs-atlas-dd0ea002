@@ -1,0 +1,169 @@
+---
+title: "External Identity Providers"
+description: "Connect Medplum to your existing identity provider — Google, Okta, Auth0, Azure AD, and any OIDC-compatible IdP."
+---
+
+Medplum supports external identity providers (IdPs) via OAuth 2.0 and OpenID Connect. This is sometimes called "Federated Identity." Instead of managing credentials in Medplum directly, your users authenticate with an IdP you already trust, and Medplum accepts the resulting token.
+
+## Supported providers
+
+Any OAuth 2.0 / OpenID Connect–compatible provider works, including:
+
+- Google
+- Auth0
+- Okta
+- AWS Cognito
+- Azure Active Directory
+- Any other OIDC-compliant IdP
+
+## Routing strategies
+
+When multiple IdPs are in play, you need a strategy for routing each user to the right one. Medplum supports two approaches:
+
+<AccordionGroup>
+  <Accordion title="App-based routing (by ClientApplication)">
+    The IdP is determined by which application the user is logging into. You configure the IdP details directly on a `ClientApplication` resource.
+
+    **Best for:** Different apps serving different populations — for example, a patient app using Auth0 and a clinician app using Okta.
+
+    Follow the [Setup](#setup) section below to configure this.
+  </Accordion>
+  <Accordion title="Domain-based routing (by email domain)">
+    The IdP is determined by the user's email domain. You map a domain (e.g., `hospital.com`) to an IdP. When a user enters their email, Medplum routes them automatically.
+
+    **Best for:** Enterprise SSO — employees log in with their corporate credentials regardless of which app they open.
+
+    See the [Domain-level Identity Providers](https://www.medplum.com/docs/auth/domain-level-identity-providers) guide.
+  </Accordion>
+</AccordionGroup>
+
+## How the auth flow works
+
+When a user authenticates through an external IdP, the flow proceeds as follows:
+
+<Steps>
+  <Step title="Your app initiates the flow">
+    Your application calls `signInWithExternalAuth()`, which redirects the user to the IdP's authorization endpoint.
+  </Step>
+  <Step title="User authenticates with the IdP">
+    The user enters their credentials on the IdP's login page (outside Medplum).
+  </Step>
+  <Step title="IdP redirects back to Medplum">
+    After successful authentication, the IdP redirects to `https://api.medplum.com/auth/external` with an authorization code.
+  </Step>
+  <Step title="Medplum exchanges the code">
+    Medplum exchanges the code for IdP tokens, retrieves the user's profile from the IdP's UserInfo endpoint, and issues a Medplum access token.
+  </Step>
+  <Step title="Your app receives a Medplum token">
+    The browser is redirected back to your app with a Medplum authorization code, which you exchange for an access token using `processCode()`.
+  </Step>
+</Steps>
+
+## Setup
+
+### Configure your IdP
+
+In your identity provider's settings:
+
+1. Register a new OAuth 2.0 application.
+2. Set the **redirect URI / callback URL** to `https://api.medplum.com/auth/external`.
+3. Enable the `profile` OpenID Connect scope.
+4. Note down the following values — you'll need them in the next step:
+   - **Authorize URL**
+   - **Token URL**
+   - **UserInfo URL**
+   - **Client ID**
+   - **Client Secret**
+
+### Configure Medplum
+
+<Steps>
+  <Step title="Create a ClientApplication">
+    In the [Medplum App](https://app.medplum.com/admin/clients), create a `ClientApplication` for your frontend app.
+  </Step>
+  <Step title="Set the Redirect URI">
+    On the `ClientApplication`, set **Redirect URI** to your app's URL (e.g., `http://localhost:8000/`).
+  </Step>
+  <Step title="Add the external identity provider">
+    On the same `ClientApplication`, add an external identity provider entry with the values you collected from your IdP:
+
+    | Field | Description |
+    | --- | --- |
+    | `authorizeUrl` | The IdP's authorization endpoint |
+    | `tokenUrl` | The IdP's token endpoint |
+    | `userInfoUrl` | The IdP's UserInfo endpoint |
+    | `clientId` | Your app's client ID at the IdP |
+    | `clientSecret` | Your app's client secret at the IdP |
+  </Step>
+</Steps>
+
+## Starting the auth flow
+
+Use `signInWithExternalAuth()` from `MedplumClient` to redirect the user to the IdP:
+
+```typescript
+import { MedplumClient } from '@medplum/core';
+
+const medplum = new MedplumClient({
+  baseUrl: 'https://api.medplum.com/',
+  clientId: MEDPLUM_CLIENT_ID,
+});
+
+// Redirect the user to the external IdP
+await medplum.signInWithExternalAuth(
+  EXTERNAL_AUTHORIZE_URL,    // IdP authorization endpoint
+  EXTERNAL_CLIENT_ID,        // Your client ID at the IdP
+  WEB_APP_REDIRECT_URI,      // Where the IdP redirects after login
+  {
+    projectId: MEDPLUM_PROJECT_ID,
+    clientId: MEDPLUM_CLIENT_ID,
+    redirectUri: WEB_APP_REDIRECT_URI,
+  }
+);
+```
+
+## Handling the redirect
+
+When the IdP redirects back to your app, it includes a `code` query parameter. Exchange it for a Medplum access token with `processCode()`:
+
+```typescript
+// In your callback route / page:
+const urlParams = new URLSearchParams(window.location.search);
+const code = urlParams.get('code');
+
+if (code) {
+  await medplum.processCode(code);
+  // The MedplumClient now holds a valid access token.
+  // All subsequent API calls are authenticated automatically.
+}
+```
+
+## Provider-specific notes
+
+<AccordionGroup>
+  <Accordion title="AWS Cognito">
+    - Set the redirect URI in: **Amazon Cognito > User Pools > [Your pool] > [Your App Client] > Edit Hosted UI > Allowed callback URLs**
+    - The `profile` scope is not included by default. Add it under **OpenID Connect Scopes** in the same Hosted UI settings.
+    - If you need to disable PKCE for Cognito, pass `false` as the last argument to `signInWithExternalAuth()`, and set **PKCE Optional** to `true` on your Medplum `ClientApplication`.
+
+    ```typescript
+    await medplum.signInWithExternalAuth(
+      EXTERNAL_AUTHORIZE_URL,
+      EXTERNAL_CLIENT_ID,
+      EXTERNAL_REDIRECT_URI,
+      {
+        projectId: MEDPLUM_PROJECT_ID,
+        clientId: MEDPLUM_CLIENT_ID,
+        redirectUri: WEB_APP_REDIRECT_URI,
+      },
+      false, // disable PKCE
+    );
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Example project
+
+Medplum provides a minimal (~100 lines of TypeScript) reference application demonstrating Auth0 as an external IdP. It can be adapted for any standard OAuth 2.0 / OpenID Connect provider:
+
+[github.com/medplum/medplum-client-external-idp-demo](https://github.com/medplum/medplum-client-external-idp-demo)

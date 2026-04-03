@@ -1,0 +1,138 @@
+---
+title: "React Component Library"
+description: "Pre-built healthcare UI components that connect directly to Medplum's FHIR data store — forms, tables, search, and more."
+---
+
+`@medplum/react` is Medplum's open-source React component library. It provides healthcare-specific UI components that connect directly to the Medplum FHIR API, so you can build clinical applications without writing data-fetching boilerplate.
+
+The library powers the [Medplum app](https://app.medplum.com) and is designed for use in third-party applications. Browse the full component catalog in [Storybook](https://storybook.medplum.com/?path=/docs/medplum-introduction--docs).
+
+## Installation
+
+Install the core packages and their peer dependencies:
+
+<CodeGroup>
+
+```bash npm
+npm install @medplum/core @medplum/react
+npm install @mantine/core @mantine/hooks @mantine/notifications @mantine/spotlight
+npm install react react-dom
+npm install postcss postcss-preset-mantine
+```
+
+```bash yarn
+yarn add @medplum/core @medplum/react
+yarn add @mantine/core @mantine/hooks @mantine/notifications @mantine/spotlight
+yarn add react react-dom
+yarn add -D postcss postcss-preset-mantine
+```
+
+```bash pnpm
+pnpm add @medplum/core @medplum/react
+pnpm add @mantine/core @mantine/hooks @mantine/notifications @mantine/spotlight
+pnpm add react react-dom
+pnpm add -D postcss postcss-preset-mantine
+```
+
+</CodeGroup>
+
+<Note>
+  `@medplum/react` is built on [Mantine](https://mantine.dev/) v8. Mantine is a required peer dependency — both libraries share the same theming and PostCSS pipeline.
+</Note>
+
+## PostCSS configuration
+
+Create a `postcss.config.mjs` at the root of your project. Mantine requires this for CSS processing:
+
+```javascript postcss.config.mjs
+import mantinePreset from 'postcss-preset-mantine';
+import simpleVars from 'postcss-simple-vars';
+
+const config = {
+  plugins: [
+    mantinePreset(),
+    simpleVars({
+      variables: {
+        'mantine-breakpoint-xs': '36em',
+        'mantine-breakpoint-sm': '48em',
+        'mantine-breakpoint-md': '62em',
+        'mantine-breakpoint-lg': '75em',
+        'mantine-breakpoint-xl': '88em',
+      },
+    }),
+  ],
+};
+
+export default config;
+```
+
+## Setting up MedplumProvider
+
+`MedplumProvider` connects your React tree to a `MedplumClient` instance. All Medplum hooks and components must be rendered inside it. Wrap `MedplumProvider` around your application alongside `MantineProvider`:
+
+```tsx index.tsx
+import { MantineProvider, createTheme } from '@mantine/core';
+import '@mantine/core/styles.css';
+import { MedplumClient } from '@medplum/core';
+import { MedplumProvider } from '@medplum/react';
+import '@medplum/react/styles.css';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router';
+import { App } from './App';
+
+const medplum = new MedplumClient({
+  baseUrl: 'https://api.medplum.com/',
+  onUnauthenticated: () => (window.location.href = '/'),
+});
+
+const theme = createTheme({});
+
+const container = document.getElementById('root') as HTMLDivElement;
+const root = createRoot(container);
+
+root.render(
+  <StrictMode>
+    <BrowserRouter>
+      <MedplumProvider medplum={medplum}>
+        <MantineProvider theme={theme}>
+          <App />
+        </MantineProvider>
+      </MedplumProvider>
+    </BrowserRouter>
+  </StrictMode>
+);
+```
+
+Inside your app, use `useMedplum()` or `useMedplumContext()` to access the client and auth state. See [React hooks](/react/react-hooks) for details.
+
+## Key components
+
+| Component | Description |
+| --- | --- |
+| `SignInForm` | Authentication form with email/password and SSO support |
+| `ResourceForm` | Auto-generated form driven by FHIR StructureDefinitions |
+| `ResourceTable` | Renders all fields of a FHIR resource in a structured table |
+| `SearchControl` | Full FHIR search UI with filters, sorting, and pagination |
+| `PatientSummary` | Patient demographics, contacts, insurance, and vitals |
+| `NoteDisplay` | Renders clinical notes with formatting |
+| `Timeline` | Chronological clinical event feed |
+| `QuestionnaireForm` | Renders and submits FHIR Questionnaires |
+| `DiagnosticReportDisplay` | Formats lab results and diagnostic reports |
+
+## Mantine dependency
+
+Medplum components use Mantine for layout, theming, and accessibility primitives. You can customize the appearance by passing a theme object to `MantineProvider`. Refer to the [Mantine theming docs](https://mantine.dev/theming/theme-object/) for all available options.
+
+If your project already uses Mantine, Medplum components will automatically inherit your theme.
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="React Components Reference" icon="puzzle" href="/react/components">
+    Props and usage examples for every component.
+  </Card>
+  <Card title="React Hooks" icon="code" href="/react/react-hooks">
+    Data fetching, auth state, and real-time subscription hooks.
+  </Card>
+</Columns>

@@ -1,0 +1,317 @@
+---
+title: "FHIR Operations"
+description: "Extended FHIR operations for bulk data export, value set expansion, and more."
+---
+
+FHIR operations are named procedures invoked using a `$` prefix. They extend the standard CRUD API to support actions that don't fit the read/write model — such as exporting bulk data, validating resources, or expanding code sets.
+
+**Operation URL patterns:**
+
+| Scope | Pattern | Example |
+|-------|---------|---------|
+| System | `POST /fhir/R4/$operation` | `/fhir/R4/$export` |
+| Resource type | `POST /fhir/R4/{Type}/$operation` | `/fhir/R4/Patient/$validate` |
+| Resource instance | `POST /fhir/R4/{Type}/{id}/$operation` | `/fhir/R4/Patient/abc123/$everything` |
+
+Parameters are passed as a FHIR `Parameters` resource in the request body, or as URL query parameters for `GET` requests.
+
+---
+
+## $export — Bulk data export
+
+Export all resources in a project or a patient group as NDJSON files. This operation is asynchronous.
+
+**System-level export** (all resources in the project):
+
+```bash
+curl -X GET https://api.medplum.com/fhir/R4/\$export?_outputFormat=application/fhir+ndjson \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Prefer: respond-async"
+```
+
+**Group export** (all resources in patients' compartments):
+
+```bash
+curl "https://api.medplum.com/fhir/R4/Group/my-group-id/\$export?_outputFormat=application/fhir+ndjson" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Prefer: respond-async"
+```
+
+**Accepted (202) response:**
+
+```http
+HTTP/1.1 202 Accepted
+Content-Location: https://api.medplum.com/fhir/R4/AsyncJob/job-id
+```
+
+**Polling for status:**
+
+```bash
+curl https://api.medplum.com/fhir/R4/AsyncJob/job-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+When the export is complete, the `AsyncJob` resource contains download URLs for each resource type in NDJSON format:
+
+```json
+{
+  "resourceType": "AsyncJob",
+  "status": "completed",
+  "output": [
+    {
+      "type": "Patient",
+      "url": "https://storage.medplum.com/export/patients-00001.ndjson"
+    },
+    {
+      "type": "Observation",
+      "url": "https://storage.medplum.com/export/observations-00001.ndjson"
+    }
+  ]
+}
+```
+
+<Note>
+Your access policy must grant read access to the `AsyncJob` resource type to poll export status.
+</Note>
+
+---
+
+## $graphql — GraphQL queries
+
+Query FHIR resources using GraphQL syntax. GraphQL lets you fetch exactly the fields you need and traverse resource references in a single request.
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/\$graphql \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ PatientList(family: \"Smith\") { id name { given family } birthDate } }"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "data": {
+    "PatientList": [
+      {
+        "id": "patient-1",
+        "name": [{ "given": ["John"], "family": "Smith" }],
+        "birthDate": "1985-03-22"
+      }
+    ]
+  }
+}
+```
+
+For a comprehensive GraphQL guide, see the [FHIR GraphQL documentation](/graphql/index).
+
+---
+
+## $validate — Resource validation
+
+Check whether a resource conforms to FHIR R4 and any applicable profiles, without persisting it.
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/Patient/\$validate \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -d '{
+    "resourceType": "Patient",
+    "name": [{ "given": ["Jane"], "family": "Doe" }]
+  }'
+```
+
+**Valid response (200 OK):**
+
+```json
+{
+  "resourceType": "OperationOutcome",
+  "id": "ok",
+  "issue": [
+    {
+      "severity": "information",
+      "code": "informational",
+      "details": { "text": "All OK" }
+    }
+  ]
+}
+```
+
+**Invalid response (200 OK with errors):**
+
+```json
+{
+  "resourceType": "OperationOutcome",
+  "issue": [
+    {
+      "severity": "error",
+      "code": "structure",
+      "details": { "text": "Invalid additional property \"Patient.unknownField\"" },
+      "expression": ["Patient.unknownField"]
+    }
+  ]
+}
+```
+
+---
+
+## $expand — ValueSet expansion
+
+Return all codes in a ValueSet, with optional filtering. Used to populate dropdowns and autocomplete fields.
+
+```bash
+curl "https://api.medplum.com/fhir/R4/ValueSet/\$expand?url=http%3A%2F%2Fhl7.org%2Ffhir%2FValueSet%2Fadministrative-gender" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json"
+```
+
+**Filter with a search string:**
+
+```bash
+curl "https://api.medplum.com/fhir/R4/ValueSet/\$expand?url=http%3A%2F%2Fhl7.org%2Ffhir%2FValueSet%2Fadministrative-gender&filter=fe" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "resourceType": "ValueSet",
+  "url": "http://hl7.org/fhir/ValueSet/administrative-gender",
+  "expansion": {
+    "offset": 0,
+    "contains": [
+      {
+        "system": "http://hl7.org/fhir/administrative-gender",
+        "code": "female",
+        "display": "Female"
+      }
+    ]
+  }
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `url` | string | URL of the ValueSet to expand (required) |
+| `filter` | string | Filter string applied to code display values |
+| `offset` | integer | Pagination offset |
+| `count` | integer | Number of results to return |
+
+---
+
+## $lookup — CodeSystem lookup
+
+Look up details about a specific code in a CodeSystem.
+
+```bash
+curl "https://api.medplum.com/fhir/R4/CodeSystem/\$lookup?system=http%3A%2F%2Floinc.org&code=29463-7" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json"
+```
+
+**Response:**
+
+```json
+{
+  "resourceType": "Parameters",
+  "parameter": [
+    { "name": "name", "valueString": "LOINC" },
+    { "name": "display", "valueString": "Body weight" },
+    { "name": "abstract", "valueBoolean": false }
+  ]
+}
+```
+
+---
+
+## $everything — Patient everything
+
+Retrieve a complete Bundle of all resources in a patient's compartment, including encounters, observations, conditions, medications, and referenced resources such as practitioners and organizations.
+
+```bash
+curl https://api.medplum.com/fhir/R4/Patient/my-patient-id/\$everything \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Filter by date range:**
+
+```bash
+curl "https://api.medplum.com/fhir/R4/Patient/my-patient-id/\$everything?start=2023-01-01&end=2024-01-01" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | date | Include resources with care dates on or after this date |
+| `end` | date | Include resources with care dates on or before this date |
+| `_since` | instant | Only resources updated since this timestamp |
+| `_count` | integer | Maximum results (default: 1000) |
+| `_offset` | integer | Pagination offset |
+| `_type` | string | Comma-separated list of resource types to include |
+
+The response is a `Bundle` of type `collection` containing all resources belonging to the patient.
+
+---
+
+## $process-message — Message processing
+
+Process a FHIR message Bundle (e.g., HL7 v2 converted to FHIR, or FHIR Messaging).
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/\$process-message \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -d '{
+    "resourceType": "Bundle",
+    "type": "message",
+    "entry": [
+      {
+        "resource": {
+          "resourceType": "MessageHeader",
+          "eventCoding": {
+            "system": "http://example.org/events",
+            "code": "patient-admit"
+          },
+          "source": {
+            "name": "My EHR",
+            "endpoint": "https://my-ehr.example.com"
+          }
+        }
+      }
+    ]
+  }'
+```
+
+---
+
+## Async operations and polling
+
+Long-running operations like `$export` use an async pattern:
+
+<Steps>
+  <Step title="Initiate the operation">
+    Send the operation request with `Prefer: respond-async`. The server returns `202 Accepted` with a `Content-Location` header pointing to an `AsyncJob` resource.
+  </Step>
+  <Step title="Poll for status">
+    `GET` the `AsyncJob` URL periodically. The `status` field progresses from `accepted` → `active` → `completed` (or `error`).
+  </Step>
+  <Step title="Download results">
+    When `status` is `completed`, retrieve download URLs from the `output` array. Files are available in NDJSON format.
+  </Step>
+</Steps>
+
+```bash
+# Poll the job status
+curl https://api.medplum.com/fhir/R4/AsyncJob/my-job-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+To cancel an in-progress job:
+
+```bash
+curl -X DELETE https://api.medplum.com/fhir/R4/AsyncJob/my-job-id \
+  -H "Authorization: Bearer $TOKEN"
+```

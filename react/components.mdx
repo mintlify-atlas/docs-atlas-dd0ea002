@@ -1,0 +1,412 @@
+---
+title: "React Components Reference"
+description: "Reference for all Medplum React components — forms, tables, search, and clinical display components."
+---
+
+All components are exported from `@medplum/react`. Import them by name:
+
+```tsx
+import { ResourceForm, SearchControl, PatientSummary } from '@medplum/react';
+```
+
+Every component must be rendered inside a [`MedplumProvider`](/react#setting-up-medplumprovider).
+
+---
+
+## Authentication
+
+<AccordionGroup>
+
+<Accordion title="SignInForm">
+
+Renders a complete sign-in form with email/password fields, optional Google sign-in, and SSO support. On success, the `MedplumClient` session is updated automatically.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `onSuccess` | `() => void` | Called after successful authentication |
+| `onForgotPassword` | `() => void` | Called when user clicks "Forgot password" |
+| `onRegister` | `() => void` | Called when user clicks "Register" |
+| `googleClientId` | `string` | Enables the Google sign-in button |
+| `projectId` | `string` | Pre-selects a project for login |
+
+**Usage**
+
+```tsx
+import { SignInForm } from '@medplum/react';
+import { useNavigate } from 'react-router';
+
+function SignInPage(): JSX.Element {
+  const navigate = useNavigate();
+
+  return (
+    <SignInForm
+      onSuccess={() => navigate('/dashboard')}
+      onForgotPassword={() => navigate('/reset-password')}
+      onRegister={() => navigate('/register')}
+    />
+  );
+}
+```
+
+</Accordion>
+
+<Accordion title="SignOutButton">
+
+A button that signs the current user out and clears the `MedplumClient` session.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `onSignOut` | `() => void` | Optional callback after sign-out completes |
+
+**Usage**
+
+```tsx
+import { SignOutButton } from '@medplum/react';
+import { useNavigate } from 'react-router';
+
+function Header(): JSX.Element {
+  const navigate = useNavigate();
+
+  return (
+    <SignOutButton onSignOut={() => navigate('/')} />
+  );
+}
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Resource display
+
+<AccordionGroup>
+
+<Accordion title="ResourceTable">
+
+Renders all fields of a FHIR resource as a two-column label/value table. Field labels are derived from the FHIR StructureDefinition.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `value` | `Resource \| Reference` | The resource or reference to display |
+| `ignoreMissingValues` | `boolean` | Hide rows where the value is empty (default: `false`) |
+| `forceUseInput` | `boolean` | Render editable inputs instead of display-only text |
+
+**Usage**
+
+```tsx
+import { ResourceTable } from '@medplum/react';
+import { useResource } from '@medplum/react';
+
+function PatientDetail({ id }: { id: string }): JSX.Element {
+  const patient = useResource({ reference: `Patient/${id}` });
+
+  if (!patient) {
+    return <div>Loading...</div>;
+  }
+
+  return <ResourceTable value={patient} ignoreMissingValues />;
+}
+```
+
+</Accordion>
+
+<Accordion title="ResourceHistoryTable">
+
+Displays the version history of a FHIR resource. Each row links to the specific version and shows the author, timestamp, and change summary.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `resourceType` | `ResourceType` | The FHIR resource type |
+| `id` | `string` | The resource ID |
+
+**Usage**
+
+```tsx
+import { ResourceHistoryTable } from '@medplum/react';
+
+function HistoryPage({ resourceType, id }: { resourceType: string; id: string }): JSX.Element {
+  return <ResourceHistoryTable resourceType={resourceType} id={id} />;
+}
+```
+
+</Accordion>
+
+<Accordion title="ResourceBadge">
+
+A compact, inline chip that displays a resource reference — typically a name and resource type icon. Useful inside tables or lists.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `value` | `Reference \| Resource` | The resource or reference to display |
+| `link` | `boolean` | Wrap the badge in a link to the resource detail page |
+
+**Usage**
+
+```tsx
+import { ResourceBadge } from '@medplum/react';
+
+function AssignedTo({ practitionerRef }: { practitionerRef: Reference }): JSX.Element {
+  return (
+    <span>
+      Assigned to: <ResourceBadge value={practitionerRef} link />
+    </span>
+  );
+}
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Resource editing
+
+<AccordionGroup>
+
+<Accordion title="ResourceForm">
+
+Auto-generates a complete edit form for any FHIR resource type by reading its StructureDefinition. Handles nested fields, extensions, and FHIR data type inputs.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `defaultValue` | `Resource` | The resource to populate the form with |
+| `onSubmit` | `(resource: Resource) => void` | Called with the updated resource on submit |
+| `outcome` | `OperationOutcome` | Displays server-side validation errors inline |
+
+**Usage**
+
+```tsx
+import { ResourceForm } from '@medplum/react';
+import { useMedplum } from '@medplum/react';
+import type { Patient } from '@medplum/fhirtypes';
+
+function EditPatient({ patient }: { patient: Patient }): JSX.Element {
+  const medplum = useMedplum();
+
+  async function handleSubmit(updated: Patient): Promise<void> {
+    await medplum.updateResource(updated);
+  }
+
+  return <ResourceForm defaultValue={patient} onSubmit={handleSubmit} />;
+}
+```
+
+</Accordion>
+
+<Accordion title="ResourcePropertyInput">
+
+Renders a single input for a named FHIR property. Use this when you need to embed one field from a resource rather than the full `ResourceForm`.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `property` | `ElementDefinition` | The FHIR element definition for this field |
+| `name` | `string` | The field name |
+| `defaultValue` | `any` | Initial field value |
+| `onChange` | `(value: any) => void` | Called when the value changes |
+
+**Usage**
+
+```tsx
+import { ResourcePropertyInput } from '@medplum/react';
+
+// Typically used inside a custom form alongside ResourceForm helpers.
+// Refer to Storybook for full examples with ElementDefinition setup.
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Search and navigation
+
+<AccordionGroup>
+
+<Accordion title="SearchControl">
+
+A full-featured FHIR search UI. Provides a results table with configurable columns, filter chips, sort headers, and pagination. Supports exporting results.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `search` | `SearchRequest` | The initial search definition (resource type, filters, fields) |
+| `onLoad` | `(result: Bundle) => void` | Called when search results load |
+| `onClick` | `(resource: Resource) => void` | Called when a row is clicked |
+| `onNew` | `() => void` | Shows a "New" button when provided |
+| `hideFilters` | `boolean` | Hides the filter row |
+| `hideToolbar` | `boolean` | Hides the top toolbar |
+| `checkboxesEnabled` | `boolean` | Enables row selection checkboxes |
+
+**Usage**
+
+```tsx
+import { SearchControl } from '@medplum/react';
+import { useNavigate } from 'react-router';
+import type { Patient } from '@medplum/fhirtypes';
+
+function PatientList(): JSX.Element {
+  const navigate = useNavigate();
+
+  return (
+    <SearchControl
+      search={{
+        resourceType: 'Patient',
+        fields: ['name', 'birthDate', 'gender'],
+        filters: [{ code: 'active', operator: 'equals', value: 'true' }],
+      }}
+      onClick={(patient) => navigate(`/patients/${(patient as Patient).id}`)}
+      onNew={() => navigate('/patients/new')}
+    />
+  );
+}
+```
+
+</Accordion>
+
+<Accordion title="ResourceInput">
+
+A typeahead search input for selecting a resource reference. Searches the FHIR API as the user types and returns the selected resource as a `Reference`.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `resourceType` | `ResourceType` | The type of resource to search |
+| `name` | `string` | Input field name |
+| `defaultValue` | `Reference` | Pre-selected reference |
+| `onChange` | `(value: Reference \| undefined) => void` | Called when selection changes |
+| `searchParams` | `URLSearchParams` | Extra search parameters to scope results |
+
+**Usage**
+
+```tsx
+import { ResourceInput } from '@medplum/react';
+import type { Reference, Practitioner } from '@medplum/fhirtypes';
+
+function AssignForm(): JSX.Element {
+  function handleChange(ref: Reference<Practitioner> | undefined): void {
+    console.log('Selected practitioner:', ref?.reference);
+  }
+
+  return (
+    <ResourceInput
+      resourceType="Practitioner"
+      name="assignedTo"
+      onChange={handleChange}
+    />
+  );
+}
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Clinical
+
+<AccordionGroup>
+
+<Accordion title="PatientSummary">
+
+Displays a structured summary of a patient: demographics, contact information, identifiers, insurance, allergies, medications, problems, vitals, and more. Sections are configurable.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `patient` | `Patient` | The patient resource |
+| `sections` | `PatientSummarySection[]` | Controls which sections are shown and their order |
+
+**Usage**
+
+```tsx
+import { PatientSummary } from '@medplum/react';
+import { useResource } from '@medplum/react';
+
+function PatientPage({ id }: { id: string }): JSX.Element {
+  const patient = useResource({ reference: `Patient/${id}` });
+
+  if (!patient) {
+    return <div>Loading...</div>;
+  }
+
+  return <PatientSummary patient={patient} />;
+}
+```
+
+</Accordion>
+
+<Accordion title="NoteDisplay">
+
+Renders a clinical note — typically the `text` narrative of a resource or an `Annotation` — with proper formatting. Handles both plain text and HTML content.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `value` | `Annotation \| string` | The note text or annotation |
+
+**Usage**
+
+```tsx
+import { NoteDisplay } from '@medplum/react';
+import type { Annotation } from '@medplum/fhirtypes';
+
+function ClinicalNote({ note }: { note: Annotation }): JSX.Element {
+  return <NoteDisplay value={note} />;
+}
+```
+
+</Accordion>
+
+<Accordion title="Timeline">
+
+A chronological feed of clinical events for a resource. Each entry renders an appropriate display component based on its resource type. Supports adding new entries inline.
+
+**Key props**
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `reference` | `Reference` | The focal resource for the timeline |
+
+Medplum provides specialized variants built on `Timeline`:
+
+- `PatientTimeline` — events scoped to a patient
+- `EncounterTimeline` — events scoped to an encounter
+- `ServiceRequestTimeline` — events scoped to a service request
+
+**Usage**
+
+```tsx
+import { PatientTimeline } from '@medplum/react';
+import type { Patient } from '@medplum/fhirtypes';
+
+function PatientFeed({ patient }: { patient: Patient }): JSX.Element {
+  return <PatientTimeline patient={patient} />;
+}
+```
+
+</Accordion>
+
+</AccordionGroup>

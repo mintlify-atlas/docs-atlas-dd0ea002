@@ -1,0 +1,81 @@
+---
+title: "Authentication Overview"
+description: "Medplum supports OAuth 2.0, SMART-on-FHIR, OpenID Connect, and external identity providers for flexible, compliant authentication."
+---
+
+Medplum uses standard OAuth 2.0 and OpenID Connect for all authentication. Whether you're building a patient-facing portal, a clinician app, or a backend integration, there's an authentication flow designed for your use case.
+
+<Columns cols={2}>
+  <Card title="Client Credentials" icon="server" href="/auth/client-credentials">
+    Machine-to-machine auth for bots, pipelines, and backend services.
+  </Card>
+  <Card title="External Identity Providers" icon="building" href="/auth/external-identity-providers">
+    Connect Google, Okta, Auth0, Azure AD, or any OIDC-compatible IdP.
+  </Card>
+  <Card title="Multi-Factor Authentication" icon="shield" href="/auth/mfa">
+    TOTP-based MFA to meet HIPAA and enterprise security requirements.
+  </Card>
+  <Card title="User Management" icon="users" href="/user-management/index">
+    Manage users, project membership, roles, and access policies.
+  </Card>
+</Columns>
+
+## Choosing an authentication method
+
+### Browser-based applications
+
+User-facing apps (web or mobile) that connect directly to Medplum authenticate through an **identity provider**. The user proves their identity to the IdP, which issues a token that Medplum accepts.
+
+| Scenario | Recommended approach |
+| --- | --- |
+| Getting started quickly, no external compliance requirements | Medplum as IdP (default) |
+| Connecting to an existing IdP (Auth0, Okta, AWS Cognito, etc.) | [External identity provider](/auth/external-identity-providers) |
+| Enterprise SSO tied to an email domain | Domain-level identity provider |
+
+<Warning>
+The Medplum App at `app.medplum.com` is an administrative tool for clinical users and developers. Patients cannot log in there directly. To provide patient access, build a custom patient portal using the Medplum SDK.
+</Warning>
+
+### Server-side applications
+
+Backend services do not authenticate on behalf of a user. They authenticate as themselves using the **Client Credentials Flow** — a machine identity (client ID + secret) exchanges for an access token.
+
+Use client credentials for:
+- Legacy system integrations
+- Medical device connectors
+- Proxy APIs
+- CI/CD pipelines and automation
+
+See the [Client Credentials](/auth/client-credentials) guide to get started.
+
+## OAuth 2.0 flows
+
+Medplum implements the following standard OAuth 2.0 grant types:
+
+| Grant type | Use case |
+| --- | --- |
+| Authorization Code (with PKCE) | Browser and native apps authenticating users |
+| Client Credentials | Server-to-server, no user interaction |
+
+## SMART-on-FHIR
+
+Medplum supports [SMART-on-FHIR](https://smarthealthit.org/) scopes for EHR-launched and standalone applications. SMART scopes follow the pattern `system/*.read`, `patient/*.write`, etc., and are evaluated during the login flow's **Scope** phase alongside the project's access policies.
+
+## Tokens
+
+All Medplum API requests are authenticated with a **Bearer token** in the `Authorization` header.
+
+```bash
+curl https://api.medplum.com/fhir/R4/Patient \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+Tokens are JWTs. By default, access tokens expire after **1 hour**. Refresh tokens (issued when the `offline_access` scope is requested) are valid for **2 weeks**.
+
+Access tokens expire after **1 hour** by default. Refresh tokens (issued with the `offline_access` scope) are valid for **2 weeks**.
+
+## Security best practices
+
+- **Principle of least privilege** — configure `ClientApplication` resources and access policies to be as restrictive as possible.
+- **Secrets management** — never store credentials or tokens on disk. Use a secrets manager (AWS Secrets Manager, HashiCorp Vault, etc.).
+- **Network isolation** — restrict access to your Medplum server via a VPC or firewall to prevent exposure to the public internet.

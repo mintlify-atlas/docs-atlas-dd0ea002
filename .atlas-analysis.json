@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Medplum",
+  "projectType": "saas",
+  "projectName": "Medplum",
+  "projectDescription": "Medplum is an open-source healthcare developer platform providing a FHIR server, SDK, React components, and automation tools for building compliant healthcare applications.",
   "theme": "palm",
-  "colors": {
-    "primary": "#040404",
-    "light": "#842d9b",
-    "dark": "#c494c9"
-  },
-  "favicon": "https://media.brand.dev/39db2f0f-253e-40e3-8750-f62b51e5a942.jpg",
-  "logo": {
-    "light": "https://media.brand.dev/011a1a6a-a485-471b-b405-119ba68a0a32.svg",
-    "dark": "https://media.brand.dev/011a1a6a-a485-471b-b405-119ba68a0a32.svg"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/medplum/medplum"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/medplum/medplum"
-    }
-  },
+  "primaryColor": "#040404",
+  "lightColor": "#842d9b",
+  "darkColor": "#c494c9",
   "navigation": {
     "tabs": [
       {
@@ -139,5 +122,33 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "FHIR R4-compliant Clinical Data Repository (CDR)",
+    "End-to-end auth with OAuth, OpenID, and SMART-on-FHIR",
+    "Serverless Bots for custom automation logic",
+    "React UI component library for healthcare apps",
+    "On-premise Agent for HL7/MLLP, ASTM, and DICOM connectivity",
+    "FHIRcast support for real-time context synchronization",
+    "GraphQL API for flexible data querying",
+    "Self-hostable on AWS, Azure, GCP, or Docker",
+    "HIPAA, SOC2, ONC, and multi-compliance framework support",
+    "Medplum CLI for project and deployment management"
+  ],
+  "publicApiSurface": [
+    "MedplumClient (core SDK)",
+    "MedplumProvider (React context provider)",
+    "@medplum/core: readResource, createResource, updateResource, deleteResource, searchResources",
+    "@medplum/core: executeBot, createAttachment, uploadMedia",
+    "@medplum/react: ResourceForm, ResourceTable, SearchControl, SignInForm",
+    "@medplum/react-hooks: useMedplum, useMedplumContext, useSubscription",
+    "@medplum/cli: medplum login, medplum get, medplum post, medplum put, medplum delete",
+    "@medplum/cli: medplum bot create, medplum bot deploy",
+    "FHIR REST API: GET/POST/PUT/DELETE /fhir/R4/{resourceType}",
+    "FHIR Search API: GET /fhir/R4/{resourceType}?{searchParams}",
+    "GraphQL API: POST /fhir/R4/$graphql",
+    "OAuth2 endpoints: /oauth2/authorize, /oauth2/token, /oauth2/userinfo",
+    "SMART App Launch support",
+    "Subscription webhooks and WebSocket subscriptions"
+  ]
 }

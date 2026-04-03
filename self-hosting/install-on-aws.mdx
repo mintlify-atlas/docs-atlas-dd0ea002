@@ -1,0 +1,128 @@
+---
+title: "Deploy on AWS"
+description: "Deploy Medplum on AWS using the official CDK stack with ECS Fargate, RDS PostgreSQL, ElastiCache Redis, and S3."
+---
+
+The AWS deployment uses [AWS CDK](https://aws.amazon.com/cdk/) to provision a production-grade infrastructure — the same setup Medplum runs for its own hosted service. It includes ECS Fargate containers, RDS Aurora PostgreSQL, ElastiCache Redis, CloudFront, S3, and a WAF.
+
+<Warning>
+  This is a complex multi-step process requiring strong familiarity with AWS, Node.js, and CDK. Contact [hello@medplum.com](mailto:hello@medplum.com) or [join Discord](https://discord.gg/medplum) if you have questions.
+</Warning>
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| AWS account | With billing enabled |
+| AWS CLI | [Installation guide](https://aws.amazon.com/cli/) |
+| AWS credentials | Configured via `~/.aws/credentials` |
+| Node.js | v18 or later |
+| Route 53 hosted zone | Strongly recommended for automatic SSL |
+| SES email identity | Required for verification emails and password resets |
+
+The IAM user or role running CDK needs access to: EC2, ElastiCache, ELB, IAM, CloudFront, CloudWatch, RDS, Route 53, S3, Secrets Manager, SSM, and WAF.
+
+<Tip>
+  Configure Route 53 as your DNS nameserver. This enables automatic SSL certificate provisioning via ACM and simplifies the entire deployment.
+</Tip>
+
+## Deployment steps
+
+<Steps>
+  <Step title="Create a config repository">
+    Create a dedicated npm project to hold your CDK configuration files.
+
+    ```bash
+    mkdir my-medplum-cdk-config
+    cd my-medplum-cdk-config
+    npm init -y
+    npm i aws-cdk-lib cdk constructs @medplum/cdk @medplum/cli
+    ```
+
+    Create `cdk.json`:
+
+    ```json
+    {
+      "app": "node node_modules/@medplum/cdk/dist/cjs/index.cjs"
+    }
+    ```
+  </Step>
+
+  <Step title="Run the init tool">
+    The `medplum aws init` command creates your CDK config file, provisions SSL certificates, generates a CloudFront signing key, and writes initial parameters to AWS Systems Manager Parameter Store.
+
+    ```bash
+    npx medplum aws init
+    ```
+
+    Follow the prompts. When complete, note the generated config filename (e.g., `medplum.demo.config.json`).
+
+    <Note>
+      After the init tool finishes, verify that approximately 13 parameters exist in **AWS Systems Manager → Parameter Store** under `/medplum/[env-name]/`. Missing parameters will cause deployment failures.
+    </Note>
+
+    The environment name you choose determines config file names, CloudFormation stack names, and Parameter Store key prefixes. For example, environment `demo` yields `medplum.demo.config.json`, stack `MedplumDemo`, and keys under `/medplum/demo/`.
+  </Step>
+
+  <Step title="Validate SSL certificates">
+    If using Route 53, select the `dns` validation method during init and complete DNS validation in ACM. Wait for certificate status to change from **Pending validation** to **Issued** before proceeding.
+
+    If your cluster is outside `us-east-1`, validate both the regional API certificate and the two CloudFront certificates (which must always be in `us-east-1`).
+  </Step>
+
+  <Step title="Bootstrap and deploy CDK">
+    Bootstrap the CDK environment, then synthesize and deploy:
+
+    ```bash
+    npx cdk bootstrap -c config=medplum.demo.config.json
+    npx cdk synth -c config=medplum.demo.config.json
+    npx cdk deploy --all -c config=medplum.demo.config.json
+    ```
+
+    Security-related change warnings during deploy are normal and expected.
+  </Step>
+
+  <Step title="Update S3 bucket policies (non-us-east-1 only)">
+    If deploying outside `us-east-1`, run this command to grant CloudFront access to S3:
+
+    ```bash
+    npx medplum aws update-bucket-policies demo
+    ```
+
+    Use `--dryrun` to preview changes before applying.
+  </Step>
+
+  <Step title="Deploy the Medplum app">
+    Deploy the frontend application from prebuilt images:
+
+    ```bash
+    npx medplum aws deploy-app demo
+    ```
+  </Step>
+</Steps>
+
+## Ongoing maintenance
+
+```bash
+# Upgrade infrastructure
+npx cdk diff -c config=medplum.demo.config.json
+npx cdk deploy -c config=medplum.demo.config.json
+
+# Upgrade the app to latest
+npx medplum aws update-app demo
+
+# Upgrade the server to latest
+npx medplum aws update-server demo
+```
+
+## Troubleshooting
+
+**App or API inaccessible** — Verify that `app.[basedomain]` points to the CloudFront distribution and `api.[basedomain]` points to the load balancer in Route 53. Re-run `update-bucket-policies` if needed.
+
+**Cannot assume role** — Ensure you ran `cdk bootstrap` and that your IAM user has `sts:AssumeRole` permission on `arn:aws:iam::*:role/cdk-*`. Note that IAM Full Access does not include this permission.
+
+**Debugging CDK** — Add `--verbose` to any CDK command for detailed output:
+
+```bash
+npx cdk synth --verbose -c config=medplum.demo.config.json
+```

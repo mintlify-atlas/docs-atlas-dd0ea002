@@ -1,0 +1,233 @@
+---
+title: "Auth API"
+description: "Authentication endpoints for login, token management, and user session control."
+---
+
+The auth endpoints handle username/password login, MFA verification, password management, and session control. These endpoints use `application/json` (not `application/fhir+json`).
+
+**Base URL:** `https://api.medplum.com`
+
+<Note>
+For OAuth 2.0 / SMART on FHIR flows, see the [OAuth 2.0 API](/api/oauth/index). The auth endpoints described here are for direct authentication flows used by first-party applications.
+</Note>
+
+---
+
+## POST /auth/login
+
+Authenticate a user with email and password. Returns a login ID and hint that can be exchanged for an access token.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | Yes | User's email address |
+| `password` | string | Yes | User's password |
+| `projectId` | string | No | Project ID for project-scoped users |
+| `clientId` | string | No | Client application ID |
+| `scope` | string | No | Requested OAuth scopes (space-separated) |
+| `nonce` | string | No | Nonce value for OIDC |
+| `remember` | boolean | No | Whether to issue a long-lived refresh token |
+
+```bash
+curl -X POST https://api.medplum.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "s3cur3P@ssword",
+    "projectId": "my-project-id",
+    "scope": "openid profile"
+  }'
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "login": "login-id-token",
+  "code": "authorization-code"
+}
+```
+
+Exchange the returned `code` at the [token endpoint](/api/oauth/index) to obtain an access token.
+
+---
+
+## POST /auth/mfa/verify
+
+Verify a TOTP code as part of multi-factor authentication. Call this after `/auth/login` when the user has MFA enabled.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `login` | string | Yes | Login ID returned by `/auth/login` |
+| `token` | string | Yes | 6-digit TOTP code from the authenticator app |
+
+```bash
+curl -X POST https://api.medplum.com/auth/mfa/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "login": "login-id-token",
+    "token": "123456"
+  }'
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "login": "login-id-token",
+  "code": "authorization-code"
+}
+```
+
+---
+
+## POST /auth/changepassword
+
+Change the password for the currently authenticated user. Requires a valid Bearer token.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `oldPassword` | string | Yes | Current password |
+| `newPassword` | string | Yes | New password (minimum 8 characters) |
+
+```bash
+curl -X POST https://api.medplum.com/auth/changepassword \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "oldPassword": "OldP@ssword1",
+    "newPassword": "NewP@ssword2"
+  }'
+```
+
+**Response:** `200 OK` on success.
+
+**Error responses:**
+
+| Status | Reason |
+|--------|--------|
+| `400` | Old password is incorrect, or new password does not meet requirements |
+| `401` | Missing or invalid access token |
+
+---
+
+## POST /auth/resetpassword
+
+Initiate a password reset for a user. Sends a reset email (unless `sendEmail` is `false`). Use this for custom reset password flows.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | Yes | User's email address |
+| `projectId` | string | No | Project ID for project-scoped users |
+| `sendEmail` | boolean | No | Send the default Medplum reset email (default: `true`). Set to `false` for custom email flows. |
+| `redirectUri` | string | No | URI the reset link redirects to |
+| `recaptchaSiteKey` | string | No | reCAPTCHA site key |
+| `recaptchaToken` | string | No | reCAPTCHA token |
+
+```bash
+curl -X POST https://api.medplum.com/auth/resetpassword \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "projectId": "my-project-id",
+    "sendEmail": true,
+    "redirectUri": "https://app.example.com/setpassword"
+  }'
+```
+
+**Response:** `200 OK` regardless of whether a matching user was found (to prevent user enumeration).
+
+<Note>
+For project-scoped users, `projectId` must be provided. Omit it for server-scoped users.
+</Note>
+
+---
+
+## POST /auth/setpassword
+
+Set a new password using a security token from a password reset or invitation email. This endpoint completes both password reset and new user invitation flows.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | `UserSecurityRequest` ID from the reset/invite email |
+| `secret` | string | Yes | Security token from the reset/invite email |
+| `password` | string | Yes | New password (minimum 8 characters) |
+
+```bash
+curl -X POST https://api.medplum.com/auth/setpassword \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "security-request-id",
+    "secret": "security-token-from-email",
+    "password": "NewP@ssword123"
+  }'
+```
+
+**Response:** `200 OK` on success.
+
+**Error responses:**
+
+| Status | Reason |
+|--------|--------|
+| `400` | Security request already used |
+| `400` | Incorrect secret token |
+| `400` | Password found in known breach database |
+| `400` | Password is fewer than 8 characters |
+
+---
+
+## GET /auth/me
+
+Returns the profile and project membership for the currently authenticated user.
+
+```bash
+curl https://api.medplum.com/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "profile": {
+    "resourceType": "Practitioner",
+    "id": "practitioner-id",
+    "name": [{ "given": ["Jane"], "family": "Doe" }]
+  },
+  "security": {
+    "mfaEnrolled": false,
+    "sessions": [
+      {
+        "id": "session-id",
+        "lastUpdated": "2024-01-15T10:00:00.000Z",
+        "authMethod": "password",
+        "remoteAddress": "1.2.3.4",
+        "browser": "Chrome",
+        "os": "macOS"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## POST /auth/logout
+
+Invalidate the current session and revoke the access token.
+
+```bash
+curl -X POST https://api.medplum.com/auth/logout \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:** `200 OK` on success.

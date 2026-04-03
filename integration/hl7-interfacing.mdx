@@ -1,0 +1,266 @@
+---
+title: "HL7 v2 Interfacing"
+description: "Send, receive, and transform HL7 v2 messages using Medplum's HL7 library and on-premise Agent."
+---
+
+Medplum's [Bot](/bots) framework provides a highly customizable HL7 interfacing engine that can replace Mirth, Corepoint, or similar integration engines. Medplum allows developers to produce and consume HL7 feeds from legacy healthcare applications such as EHRs, LIS, RIS/PACS, and billing systems.
+
+<Note>
+  HL7 v2 should only be used when necessary. If a system has a FHIR or REST interface, prefer those over HL7 v2.
+</Note>
+
+## HL7 v2 overview
+
+HL7 v2 is a messaging standard released in 1987, predating HTTPS. It is not natively encrypted and cannot be transmitted over the open internet in a compliant manner. Despite this, approximately 95% of healthcare institutions in the US support HL7 v2.
+
+HL7 v2 messages consist of segments separated by carriage returns. Each segment starts with a three-letter identifier (e.g., `MSH`, `PID`, `OBR`), and fields within a segment are separated by `|`.
+
+A sample ADT (Admission, Discharge, Transfer) message:
+
+```
+MSH|^~\&|ADT1|MCM|LABADT|MCM|198808181126|SECURITY|ADT|MSG00001|P|2.1
+PID|||PATID1234^5^M11||JONES^WILLIAM^A^III||19610615|M-||C|1200 N ELM STREET^^GREENSBORO^NC^27401-1020|GL|(919)379-1212|(919)271-3434||S||PATID12345001^2^M10|123456789|987654^NC
+NK1|1|JONES^BARBARA^K|SPO|||||20011105
+PV1|1|I|2000^2012^01||||004777^LEBAUER^SIDNEY^J.|||SUR||-||1|A0-
+```
+
+## Common message types
+
+| Message type | Abbreviation | Description |
+|---|---|---|
+| Admission, Discharge, Transfer | ADT | Patient identity and location events |
+| General Order | ORM | Place a lab or imaging order |
+| Observation Result | ORU | Return lab or diagnostic results |
+| Financial Transaction | DFT | Billing and charge capture |
+| Scheduling Information Unsolicited | SIU | Appointment scheduling events |
+
+### Common consuming use cases
+
+| Use case | Message type | Description |
+|---|---|---|
+| Identity management | ADT | Check for existing patient demographics; create a record if not found |
+| Lab results | ORU | Store observation results when a lab test completes |
+| Appointment-triggered workflows | SIU | Prompt patient onboarding when a new appointment is scheduled |
+
+### Common publishing use cases
+
+| Use case | Message type | Description |
+|---|---|---|
+| Discharge notification | ADT | Notify downstream systems when a patient is discharged |
+| Lab orders | ORM | Place a lab test order in an external LIS |
+| Schedule publication | SIU | Share appointment events with partner organizations |
+
+## Connecting to legacy systems
+
+HL7 v2 cannot be sent over the public internet without a secure transport wrapper. Medplum supports three approaches:
+
+<AccordionGroup>
+  <Accordion title="Medplum Agent (recommended)">
+    The [Medplum Agent](/agent/index) runs inside your local network and acts as a bi-directional MLLP bridge between on-premise devices and Medplum cloud. It is the recommended approach for device-level connectivity.
+
+    See the [Agent documentation](/agent/index) for installation and configuration instructions.
+  </Accordion>
+  <Accordion title="File-based (SFTP)">
+    Some organizations drop HL7 message files onto an SFTP server. Use the SFTP client in a Bot to retrieve files on a schedule and parse them with the HL7 SDK. Combine with a scheduled (cron) Bot to create an event-driven workflow.
+  </Accordion>
+  <Accordion title="HL7 aggregators">
+    Commercial aggregators such as HealthJump or PointClickCare consolidate HL7 feeds from multiple sources and expose an API or webhook that a Medplum Bot can consume. These require a third-party contract.
+  </Accordion>
+</AccordionGroup>
+
+## Parsing HL7 with `@medplum/core`
+
+The `Hl7Message` class from `@medplum/core` provides a typed API for parsing and building HL7 v2 messages.
+
+```typescript
+import { Hl7Message } from '@medplum/core';
+
+// Parse a raw HL7 string
+const message = Hl7Message.parse(rawHl7String);
+
+// Read segment fields
+const msh = message.getSegment('MSH');
+const messageType = msh?.getField(9)?.toString();       // e.g. "ADT^A01"
+const sendingApp = msh?.getField(3)?.toString();        // e.g. "ADT1"
+
+const pid = message.getSegment('PID');
+const patientName = pid?.getField(5)?.toString();       // e.g. "JONES^WILLIAM^A^III"
+const dateOfBirth = pid?.getField(7)?.toString();       // e.g. "19610615"
+const patientId = pid?.getField(3)?.getComponent(1);   // e.g. "PATID1234"
+
+// Build an ACK response
+const ack = message.buildAck();
+console.log(ack.toString());
+```
+
+## Receiving HL7 messages via the Agent
+
+When the Agent receives an HL7 message over MLLP, it forwards the message to the Bot you configured on the `Agent` resource. The Bot receives it as an `Hl7Message` via the `BotEvent` input:
+
+```typescript
+import { BotEvent, Hl7Message, MedplumClient } from '@medplum/core';
+
+export async function handler(medplum: MedplumClient, event: BotEvent<Hl7Message>): Promise<Hl7Message> {
+  const message = event.input;
+  const messageType = message.getSegment('MSH')?.getField(9)?.toString();
+
+  if (messageType?.startsWith('ORU')) {
+    await processResult(medplum, message);
+  }
+
+  return message.buildAck();
+}
+```
+
+## Converting HL7 to FHIR resources
+
+The following example shows a complete Bot that parses an `ORU^R01` observation result message and creates a FHIR `Patient` and `Observation`:
+
+```typescript
+import { BotEvent, Hl7Message, MedplumClient, normalizeErrorString } from '@medplum/core';
+import type { Observation, Patient } from '@medplum/fhirtypes';
+
+export async function handler(medplum: MedplumClient, event: BotEvent<Hl7Message>): Promise<Hl7Message> {
+  const message = event.input;
+  const msh = message.getSegment('MSH');
+  const pid = message.getSegment('PID');
+  const obr = message.getSegment('OBR');
+  const obx = message.getSegment('OBX');
+
+  // Only process ORU^R01 messages
+  const messageType = msh?.getField(9)?.toString();
+  if (!messageType?.startsWith('ORU')) {
+    return message.buildAck();
+  }
+
+  // Extract patient identifiers
+  const mrn = pid?.getField(3)?.getComponent(1) ?? '';
+  const familyName = pid?.getField(5)?.getComponent(1) ?? '';
+  const givenName = pid?.getField(5)?.getComponent(2) ?? '';
+  const dob = pid?.getField(7)?.toString() ?? '';
+
+  // Upsert the Patient resource by MRN to avoid duplicates
+  const patient = await medplum.upsertResource(
+    {
+      resourceType: 'Patient',
+      identifier: [{ system: 'urn:oid:hospital-mrn', value: mrn }],
+      name: [{ family: familyName, given: [givenName] }],
+      birthDate: dob ? `${dob.slice(0, 4)}-${dob.slice(4, 6)}-${dob.slice(6, 8)}` : undefined,
+    } as Patient,
+    `identifier=urn:oid:hospital-mrn|${mrn}`
+  );
+
+  // Extract observation values from OBX segment
+  const loincCode = obx?.getField(3)?.getComponent(1) ?? '';
+  const loincDisplay = obx?.getField(3)?.getComponent(2) ?? '';
+  const value = obx?.getField(5)?.toString() ?? '';
+  const units = obx?.getField(6)?.getComponent(1) ?? '';
+  const referenceRange = obx?.getField(7)?.toString();
+  const status = obx?.getField(11)?.toString() ?? 'final';
+
+  // Map OBX-11 status to FHIR Observation status
+  const fhirStatus = status === 'F' ? 'final' : status === 'P' ? 'preliminary' : 'unknown';
+
+  // Create the Observation resource
+  await medplum.createResource({
+    resourceType: 'Observation',
+    status: fhirStatus as Observation['status'],
+    code: {
+      coding: [{ system: 'http://loinc.org', code: loincCode, display: loincDisplay }],
+    },
+    subject: { reference: `Patient/${patient.id}` },
+    valueQuantity: {
+      value: parseFloat(value),
+      unit: units,
+    },
+    referenceRange: referenceRange ? [{ text: referenceRange }] : undefined,
+  } as Observation);
+
+  return message.buildAck();
+}
+```
+
+## Sending HL7 messages to external systems
+
+To send an HL7 message from Medplum to a device on the local network, use the `Agent/$push` operation. This is typically called from a Bot that responds to a FHIR subscription — for example, when a `ServiceRequest` is created to trigger a lab order:
+
+```typescript
+import { BotEvent, MedplumClient } from '@medplum/core';
+import type { ServiceRequest } from '@medplum/fhirtypes';
+
+export async function handler(medplum: MedplumClient, event: BotEvent<ServiceRequest>): Promise<void> {
+  const serviceRequest = event.input;
+
+  // Build the ORM^O01 message string
+  const ormMessage = buildOrmMessage(serviceRequest);
+
+  // Push to the agent, which forwards to the LIS over MLLP
+  await medplum.executeOperation(
+    { reference: 'Agent/<agent-id>' },
+    '$push',
+    {
+      destination: 'mllp://192.168.1.50:2575',
+      body: ormMessage,
+      contentType: 'x-application/hl7-v2+er7',
+    }
+  );
+}
+
+function buildOrmMessage(serviceRequest: ServiceRequest): string {
+  const now = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+  const orderId = serviceRequest.id ?? 'UNKNOWN';
+
+  return [
+    `MSH|^~\\&|Medplum|HospitalA|LabSystem|HospitalA|${now}||ORM^O01|${orderId}|P|2.3`,
+    `PID|1||${orderId}^^^HospitalA||Doe^John^A||19800101|M`,
+    `ORC|NW|${orderId}||`,
+    `OBR|1|${orderId}||CBC^Complete Blood Count^L`,
+  ].join('\r');
+}
+```
+
+## Testing HL7 message processing
+
+You can test a Bot directly by posting an HL7 message body via the REST API:
+
+```bash
+curl -X POST "https://api.medplum.com/fhir/R4/Bot/<bot-id>/\$execute" \
+  --header "Content-Type: x-application/hl7-v2+er7" \
+  --header "Authorization: Bearer <access_token>" \
+  --data-raw $'MSH|^~\\&|LAB|1234|EHR|5678|202404221430||ORU^R01|123456|P|2.5.1\rPID|1||123456789^^^LAB||Doe^John^Q||19870507|M\rOBR|1|8481234^LAB|1045813^LAB|1554-5^LDL Cholesterol^LN\rOBX|1|NM|1554-5^LDL Cholesterol^LN||130|mg/dL|<100=Optimal|N|||F'
+```
+
+A successful response is an HL7 ACK message:
+
+```
+MSH|^~\\&|EHR|5678|LAB|1234|20240422143000||ACK|123456|P|2.5.1
+MSA|AA|123456|OK
+```
+
+For end-to-end MLLP testing with a running agent, use the Medplum CLI:
+
+```bash
+medplum hl7 send localhost 56000 --generate-example
+```
+
+## ORM segment reference
+
+When building lab orders, the key ORM^O01 segments are:
+
+| Segment | Purpose | Key fields |
+|---|---|---|
+| `MSH` | Message header | Message type, timestamp, sending/receiving app |
+| `PID` | Patient identification | MRN, name, date of birth, address |
+| `PV1` | Patient visit | Location, attending physician, visit type |
+| `ORC` | Common order | Order control, status, ordering provider |
+| `OBR` | Observation request | Test code, ordered date, ordering physician |
+| `OBX` | Observation/result | Result value, units, reference range, status |
+
+## Related
+
+- [Medplum Agent](/agent/index) — on-premise connectivity for HL7 feeds
+- [Bot basics](/bots/bot-basics) — create and deploy Bots for HL7 transformation
+- [Demo lab bots](https://github.com/medplum/medplum/tree/main/examples/medplum-demo-bots/src/lab-integration) on GitHub
+- [HL7 bot demo video](https://youtu.be/q0SXeb_8H2Q) on YouTube
+- [Medplum Agent demo video](https://youtu.be/MmE3Dn939B4) on YouTube
+- [HL7 v2 standard](https://www.hl7.org/implement/standards/product_brief.cfm?product_id=185)

@@ -1,0 +1,100 @@
+---
+title: "FHIR Data Store"
+description: "Store, read, update, and delete FHIR resources in Medplum's compliant clinical data repository."
+---
+
+Medplum's FHIR Data Store supports all CRUD operations on FHIR resources and is the foundation of every Medplum application. All reads, writes, searches, and event triggers operate against this store.
+
+## Creating a resource
+
+Use `createResource` to POST a new resource. The server assigns the `id` — you do not supply one.
+
+```typescript
+import { MedplumClient } from '@medplum/core';
+import { Patient } from '@medplum/fhirtypes';
+
+const medplum = new MedplumClient();
+
+const patient = await medplum.createResource<Patient>({
+  resourceType: 'Patient',
+  name: [{ given: ['Jane'], family: 'Doe' }],
+  birthDate: '1990-01-15',
+});
+
+console.log(patient.id); // server-assigned UUID
+```
+
+## Reading a resource
+
+```typescript
+const patient = await medplum.readResource('Patient', '123e4567-e89b-12d3-a456-426614174000');
+console.log(patient.name?.[0]?.family);
+```
+
+## Updating a resource
+
+`updateResource` performs a full PUT replacement. Include the `id` and `resourceType`.
+
+```typescript
+patient.name = [{ given: ['Jane'], family: 'Smith' }];
+const updated = await medplum.updateResource(patient);
+```
+
+## Deleting a resource
+
+```typescript
+await medplum.deleteResource('Patient', patient.id!);
+```
+
+## Batch and transaction bundles
+
+Send multiple operations in a single request using a FHIR Bundle. Use `type: 'batch'` for independent operations, or `type: 'transaction'` to roll back all entries if any one fails.
+
+```typescript
+import { Bundle } from '@medplum/fhirtypes';
+
+const bundle: Bundle = {
+  resourceType: 'Bundle',
+  type: 'transaction',
+  entry: [
+    {
+      request: { method: 'POST', url: 'Patient' },
+      resource: {
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Example' }],
+      },
+    },
+    {
+      request: { method: 'POST', url: 'Observation' },
+      resource: {
+        resourceType: 'Observation',
+        status: 'final',
+        code: { text: 'Blood pressure' },
+      },
+    },
+  ],
+};
+
+const result = await medplum.executeBatch(bundle);
+```
+
+<Note>
+  Transactions are atomic: if any entry fails, the entire bundle is rolled back. Batches process each entry independently.
+</Note>
+
+## Explore related features
+
+<CardGroup cols={2}>
+  <Card title="Searching FHIR Resources" icon="magnifying-glass" href="/fhir-datastore/search">
+    Use search parameters, modifiers, sorting, and pagination to query your data.
+  </Card>
+  <Card title="Bots" icon="bolt" href="/bots/index">
+    Trigger serverless automation logic on resource changes.
+  </Card>
+  <Card title="Subscriptions" icon="bell" href="/subscriptions/index">
+    React to FHIR resource changes in real time with webhooks and WebSockets.
+  </Card>
+  <Card title="GraphQL API" icon="brackets-curly" href="/graphql/index">
+    Query linked resources in a single request with the FHIR GraphQL API.
+  </Card>
+</CardGroup>

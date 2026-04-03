@@ -1,0 +1,186 @@
+---
+title: "GraphQL API"
+description: "Query Medplum's FHIR data store using a flexible GraphQL API with type-safe queries and mutations."
+---
+
+Medplum implements the [FHIR GraphQL specification](https://hl7.org/fhir/r4/graphql.html), giving you a flexible way to query multiple linked resources in a single request and retrieve only the fields you need.
+
+<Tip>
+  Experiment interactively at [graphiql.medplum.com](https://graphiql.medplum.com/) — log in with your Medplum credentials to run queries against live data.
+</Tip>
+
+## Endpoint
+
+All GraphQL requests are POSTed to:
+
+```
+POST https://api.medplum.com/fhir/R4/$graphql
+Content-Type: application/json
+Authorization: Bearer <ACCESS_TOKEN>
+```
+
+## Fetching a single resource
+
+Use the resource type as the root field with the `id` argument:
+
+<CodeGroup>
+
+```graphql query
+{
+  Patient(id: "abc-123") {
+    resourceType
+    id
+    name {
+      given
+      family
+    }
+    birthDate
+  }
+}
+```
+
+```typescript typescript
+const result = await medplum.graphql(`
+  {
+    Patient(id: "abc-123") {
+      resourceType
+      id
+      name { given family }
+      birthDate
+    }
+  }
+`);
+
+const patient = result.data.Patient;
+console.log(patient.name[0].family);
+```
+
+```bash curl
+curl -X POST "https://api.medplum.com/fhir/R4/\$graphql" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ Patient(id: \"abc-123\") { id name { given family } birthDate } }"}'
+```
+
+</CodeGroup>
+
+## Searching a list of resources
+
+Append `List` to any resource type to search. Search parameters use `snake_case` (not kebab-case).
+
+<CodeGroup>
+
+```graphql query
+{
+  patients: PatientList(name: "Eve", address_city: "Philadelphia") {
+    id
+    name { given family }
+    birthDate
+  }
+}
+```
+
+```typescript typescript
+const result = await medplum.graphql(`
+  {
+    patients: PatientList(name: "Eve", address_city: "Philadelphia") {
+      id
+      name { given family }
+      birthDate
+    }
+  }
+`);
+
+const patients = result.data.patients;
+patients.forEach((p: any) => console.log(p.name[0].family));
+```
+
+</CodeGroup>
+
+<Note>
+  GraphQL search parameters use `snake_case`. The REST API uses `kebab-case`. For example, `address-city` in REST becomes `address_city` in GraphQL.
+</Note>
+
+## Resolving linked resources
+
+Use the `resource` element with inline fragments to traverse FHIR references and load nested resources in one request.
+
+```graphql
+{
+  DiagnosticReport(id: "report-456") {
+    id
+    status
+    result {
+      resource {
+        ... on Observation {
+          id
+          status
+          code { text }
+          valueQuantity { value unit }
+        }
+      }
+    }
+  }
+}
+```
+
+This single query returns the `DiagnosticReport` along with every `Observation` it references via `result` — no N+1 fetching required.
+
+## Reverse references with `_reference`
+
+Find resources that point to the current resource using a nested `<ResourceType>List` block with the `_reference` parameter:
+
+```graphql
+{
+  Patient(id: "patient-789") {
+    id
+    name { given family }
+    EncounterList(_reference: patient) {
+      id
+      status
+      period { start end }
+    }
+  }
+}
+```
+
+## Using `MedplumClient.graphql()`
+
+The SDK's `graphql()` method handles serialization and authentication for you:
+
+```typescript
+import { MedplumClient } from '@medplum/core';
+
+const medplum = new MedplumClient();
+
+// With typed variables
+const result = await medplum.graphql(
+  `query GetPatient($id: ID!) {
+    Patient(id: $id) {
+      id
+      name { given family }
+    }
+  }`,
+  'GetPatient',
+  { id: 'abc-123' }
+);
+
+const patient = result.data.Patient;
+```
+
+## Authentication
+
+Every request must include a Bearer token obtained from the OAuth 2.0 token endpoint:
+
+```bash
+curl -X POST "https://api.medplum.com/fhir/R4/\$graphql" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ Patient(id: \"abc-123\") { id } }"}'
+```
+
+Access policies are enforced on every GraphQL query. Users cannot read or write resources or fields they do not have permission to access.
+
+<Note>
+  Schema introspection is disabled by default for security and performance. Enable the `introspectionEnabled` flag in your server config to turn it on.
+</Note>

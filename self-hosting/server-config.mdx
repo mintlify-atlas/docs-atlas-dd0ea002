@@ -1,0 +1,318 @@
+---
+title: "Server Configuration"
+description: "Configure your Medplum server deployment with database, storage, email, and authentication settings."
+---
+
+Medplum server loads its configuration from one of two sources depending on your environment:
+
+- **Local / Docker**: JSON config file (`medplum.config.json`)
+- **AWS**: AWS Parameter Store (SSM), with secrets in AWS Secrets Manager
+
+Some settings are created automatically by the CDK deployment (database and Redis connection details). Others must be set manually before the first deploy.
+
+## Config file structure
+
+Below is a representative `medplum.config.json` for local development:
+
+```json medplum.config.json
+{
+  "port": 8103,
+  "baseUrl": "http://localhost:8103/",
+  "appBaseUrl": "http://localhost:3000/",
+  "binaryStorage": "file:./binary/",
+  "storageBaseUrl": "http://localhost:8103/storage/",
+  "supportEmail": "\"Medplum\" <support@medplum.com>",
+  "maxJsonSize": "1mb",
+  "maxBatchSize": "50mb",
+  "vmContextBotsEnabled": true,
+  "defaultBotRuntimeVersion": "vmcontext",
+  "allowedOrigins": "*",
+  "introspectionEnabled": true,
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "medplum",
+    "username": "medplum",
+    "password": "medplum"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "medplum"
+  },
+  "bullmq": {
+    "removeOnFail": { "count": 1 },
+    "removeOnComplete": { "count": 1 }
+  },
+  "shutdownTimeoutMilliseconds": 30000
+}
+```
+
+## Required settings
+
+The following settings must be present for the server to start.
+
+| Key | Description |
+|---|---|
+| `port` | Port the API server binds to inside Docker. Default: `8103`. |
+| `baseUrl` | Fully qualified base URL of the API server, with trailing slash. E.g. `https://api.example.com/`. |
+| `appBaseUrl` | Fully qualified URL of the user-facing app, used for CORS and system emails. E.g. `https://app.example.com/`. |
+| `binaryStorage` | Where to store binary content. Prefix with `s3:` for S3, e.g. `s3:medplum-storage`. |
+| `storageBaseUrl` | Base URL for binary storage. E.g. `https://storage.medplum.com/binary/`. |
+| `supportEmail` | Sender address for system-generated email. Must be registered in AWS SES. |
+
+## Database
+
+<AccordionGroup>
+  <Accordion title="JSON config (local / Docker)">
+    Provide connection details as a nested object under `database`:
+
+    ```json
+    "database": {
+      "host": "localhost",
+      "port": 5432,
+      "dbname": "medplum",
+      "username": "medplum",
+      "password": "medplum"
+    }
+    ```
+  </Accordion>
+  <Accordion title="AWS (DatabaseSecrets)">
+    When running on AWS, CDK publishes connection details to AWS Secrets Manager. Set `DatabaseSecrets` to the Secret ID:
+
+    ```json
+    {
+      "dbClusterIdentifier": "my-cluster",
+      "password": "password",
+      "dbname": "medplum",
+      "engine": "postgres",
+      "port": 5432,
+      "host": "my-cluster.us-east-1.rds.amazonaws.com",
+      "username": "clusteradmin",
+      "queryTimeout": 60000
+    }
+    ```
+
+    <Note>
+      `queryTimeout` controls how long the database allows a query to run (milliseconds) before terminating it. Set to `0` to disable.
+    </Note>
+  </Accordion>
+  <Accordion title="SSL configuration">
+    To require encrypted connections to PostgreSQL, set the `ssl` block:
+
+    ```json
+    "database": {
+      "host": "my-rds-host.rds.amazonaws.com",
+      "port": 5432,
+      "dbname": "medplum",
+      "username": "medplum",
+      "password": "medplum",
+      "ssl": {
+        "require": true,
+        "rejectUnauthorized": true
+      }
+    }
+    ```
+
+    When using AWS RDS, download the RDS CA certificate and supply it in the `ca` field (PEM format). Note that AWS Parameter Store has a 4096-character limit — use the individual certificate rather than the full bundle.
+
+    | Parameter | Description | Default |
+    |---|---|---|
+    | `database.ssl.require` | Require SSL connections | `false` |
+    | `database.ssl.ca` | Trusted CA certificates (PEM) | Mozilla CA bundle |
+    | `database.ssl.rejectUnauthorized` | Reject connections without a valid CA | `true` |
+  </Accordion>
+  <Accordion title="Read-only replica">
+    To offload read-heavy search and GraphQL operations to a read replica, add `readonlyDatabase` with the same shape as `database`. The `readonlyDatabase.ssl.*` options mirror those for the primary database.
+  </Accordion>
+</AccordionGroup>
+
+## Redis
+
+<AccordionGroup>
+  <Accordion title="JSON config (local / Docker)">
+    ```json
+    "redis": {
+      "host": "localhost",
+      "port": 6379,
+      "password": "medplum"
+    }
+    ```
+  </Accordion>
+  <Accordion title="AWS (RedisSecrets)">
+    CDK publishes Elasticache connection details to Secrets Manager. Example secret shape:
+
+    ```json
+    {
+      "password": "password",
+      "port": "6379",
+      "host": "my-cluster.cache.amazonaws.com",
+      "tls": {}
+    }
+    ```
+
+    Set `RedisSecrets` in your Parameter Store config to the Secret ID.
+  </Accordion>
+</AccordionGroup>
+
+## Storage
+
+| Key | Description | Default |
+|---|---|---|
+| `binaryStorage` | Storage backend. Use `s3:<bucket-name>` for S3 or `file:<path>` locally. | None (required) |
+| `storageBaseUrl` | Public base URL for binary downloads. | None (required) |
+| `signingKeyId` | AWS CloudFront signing key ID (for presigned URLs). | None |
+| `signingKey` | Private key for CloudFront signing. | None |
+| `signingKeyPassphrase` | Passphrase for the signing key. | None |
+| `sseCustomerKey` | Base64-encoded 256-bit key for S3 SSE-C encryption. | None |
+
+<Warning>
+  If you set `sseCustomerKey`, store it securely. Losing the key makes all data encrypted with it permanently inaccessible. SSE-C does not retroactively encrypt existing S3 objects — only new uploads are encrypted.
+
+  To generate a key:
+  ```bash
+  openssl rand -base64 32
+  ```
+</Warning>
+
+## Email
+
+| Key | Description | Default |
+|---|---|---|
+| `emailProvider` | `'awsses'`, `'smtp'`, or `'none'`. | `'awsses'` on AWS, otherwise `'none'` |
+| `supportEmail` | From address for system emails. | None (required) |
+| `approvedSenderEmails` | Comma-separated list of allowed sender addresses for SES. | None |
+| `smtp` | SMTP connection settings (host, port, auth). See [Sending SMTP Emails](/self-hosting/server-config). | None |
+
+## Authentication
+
+| Key | Description | Default |
+|---|---|---|
+| `issuer` | JWT issuer. Matches `baseUrl` when using built-in OAuth. | `baseUrl` |
+| `jwksUrl` | JWKS endpoint URL. | `baseUrl` + `.well-known/jwks.json` |
+| `authorizeUrl` | OAuth authorize URL. | `baseUrl` + `oauth2/authorize` |
+| `tokenUrl` | OAuth token URL. | `baseUrl` + `oauth2/token` |
+| `userInfoUrl` | OAuth userinfo URL. | `baseUrl` + `oauth2/userinfo` |
+| `introspectUrl` | OAuth introspection URL. | `baseUrl` + `oauth2/introspect` |
+| `introspectionEnabled` | Enable the introspection endpoint. | `true` |
+| `registerEnabled` | Allow new user self-registration. | `true` |
+| `googleClientId` | Google OAuth client ID. | None |
+| `googleClientSecret` | Google OAuth client secret. | None |
+| `recaptchaSiteKey` | reCAPTCHA site key. | None |
+| `recaptchaSecretKey` | reCAPTCHA secret key. | None |
+| `mfaAuthenticatorWindow` | TOTP time-step window for MFA validation. | `1` |
+| `bcryptHashSalt` | bcrypt work factor for password hashing. | `10` |
+
+### External authentication providers
+
+To allow users to authenticate directly with JWTs from an external identity provider (without a token exchange), configure `externalAuthProviders`:
+
+```json
+{
+  "externalAuthProviders": [
+    {
+      "issuer": "https://auth.example.com",
+      "userInfoUrl": "https://auth.example.com/oauth2/userinfo"
+    }
+  ]
+}
+```
+
+The server validates incoming JWTs against the IDP's userinfo endpoint and identifies users via the `fhirUser` claim or by matching `sub` against `ProjectMembership.externalId`. See [Direct External Authentication](/auth/external-identity-providers) for details.
+
+## Rate limiting
+
+| Key | Description | Default |
+|---|---|---|
+| `defaultRateLimit` | Max requests per minute to the API. | `60000/minute` |
+| `defaultAuthRateLimit` | Max auth requests per minute. | `60/minute` |
+| `defaultFhirQuota` | Total FHIR requests allowed per period. | `50000` |
+
+<Tip>
+  If you see clients hitting `defaultAuthRateLimit`, they are likely authenticating on every request rather than reusing tokens. See the [Rate Limits](/api/index) docs.
+</Tip>
+
+## Request limits
+
+| Key | Description | Default |
+|---|---|---|
+| `maxJsonSize` | Maximum JSON body size for API requests. | `1mb` |
+| `maxBatchSize` | Maximum body size for async batch requests. | `50mb` |
+| `maxSearchOffset` | Maximum `_offset` for search queries. | `10000` |
+| `accurateCountThreshold` | Threshold below which exact counts are returned. | `1000000` |
+
+## Job queue (BullMQ)
+
+| Key | Description | Default |
+|---|---|---|
+| `bullmq.concurrency` | Parallel jobs per worker. | `1` |
+| `bullmq.removeOnComplete` | Remove completed jobs automatically. | `false` |
+| `bullmq.removeOnFail` | Remove failed jobs automatically. | `false` |
+
+## Audit and logging
+
+| Key | Description | Default |
+|---|---|---|
+| `logLevel` | Log verbosity: `NONE`, `ERROR`, `WARN`, `INFO`, `DEBUG`. | `INFO` |
+| `logRequests` | Log each HTTP request. | `false` |
+| `saveAuditEvents` | Persist `AuditEvent` resources to the database. | `false` |
+| `logAuditEvents` | Write `AuditEvent` resources to the logger. | `false` |
+| `auditEventLogGroup` | CloudWatch Log Group for audit events. | None |
+| `auditEventLogStream` | CloudWatch Log Stream for audit events. | `os.hostname()` |
+| `redactAuditEvents` | Remove PHI from audit event descriptions. | `false` |
+
+## Bots
+
+| Key | Description | Default |
+|---|---|---|
+| `botLambdaRoleArn` | ARN of the Lambda execution role for Bots. | None |
+| `botLambdaLayerName` | Lambda layer name for Bots. | `medplum-bot-layer` |
+| `defaultBotRuntimeVersion` | Default runtime: `awslambda` or `vmcontext`. | `awslambda` |
+| `vmContextBotsEnabled` | Enable VM context (local) bot execution. | `false` |
+| `maxBotLogLengthForResource` | Max `AuditEvent.outcomeDesc` length saved to DB. | `10kb` |
+| `maxBotLogLengthForLogs` | Max `AuditEvent.outcomeDesc` length sent to logger. | `10kb` |
+
+## Server lifecycle
+
+| Key | Description | Default |
+|---|---|---|
+| `shutdownTimeoutMilliseconds` | Graceful shutdown timeout. | `30000` |
+| `keepAliveTimeout` | Node.js keep-alive timeout (ms). | None |
+| `heartbeatEnabled` | Enable server heartbeat. | `false` |
+| `heartbeatMilliseconds` | Heartbeat interval (ms). | None |
+
+## AWS Parameter Store
+
+When running on AWS, parameter names follow the convention `/medplum/{environmentName}/{key}`.
+
+For example, with environment name `prod`:
+
+| Parameter | Example value |
+|---|---|
+| `/medplum/prod/baseUrl` | `https://api.example.com/` |
+| `/medplum/prod/appBaseUrl` | `https://app.example.com/` |
+| `/medplum/prod/database.ssl.require` | `true` |
+| `/medplum/prod/database.ssl.rejectUnauthorized` | `true` |
+
+Use **SecureString** type for sensitive values such as passwords and private keys.
+
+### External secrets
+
+To pull config values from Parameter Store at CDK deployment time, replace any value with an external secret descriptor:
+
+```json
+{
+  "region": "us-east-1",
+  "apiPort": {
+    "system": "aws_ssm_parameter_store",
+    "key": "apiPort",
+    "type": "number"
+  }
+}
+```
+
+Supported `system` values: `aws_ssm_parameter_store`. The `type` field coerces the string value from SSM to the correct primitive type.
+
+<Tip>
+  After changing Parameter Store values, restart your server for settings to take effect. Use `medplum aws update-server` for a zero-downtime restart. See [Upgrading the Server](/self-hosting/upgrading-server) for details.
+</Tip>

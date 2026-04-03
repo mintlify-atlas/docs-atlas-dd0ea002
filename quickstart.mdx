@@ -1,80 +1,205 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Register a Medplum project and make your first FHIR API call in minutes."
+keywords: ["medplum", "quickstart", "fhir", "api", "typescript", "sdk"]
 ---
 
-## Get started in three steps
+This guide walks you through registering a Medplum project and making your first FHIR API calls using the `@medplum/core` SDK.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+  Medplum is available as a hosted cloud service at [app.medplum.com](https://app.medplum.com) or as a self-hosted deployment on your own infrastructure. This guide uses the hosted cloud. To self-host, see the [self-hosting docs](/self-hosting/index).
+</Note>
 
-### Step 1: Set up your local environment
+<Steps>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Register at app.medplum.com">
+    Open [https://app.medplum.com/register](https://app.medplum.com/register) in your browser.
 
-### Step 2: Deploy your changes
+    Fill in your account details and click **Create account**. On the next screen, enter a name for your first **Medplum Project** and click **Create Project**.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    A project is a logically isolated collection of FHIR resources with its own users, permissions, and client applications. A common pattern is to create separate staging and production projects.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    After registration, note your project ID from the project settings page — you will use it when configuring client credentials.
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Install the SDK">
+    Install `@medplum/core` and the FHIR type definitions:
 
-### Step 3: Go live
+    <CodeGroup>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash npm
+    npm install @medplum/core @medplum/fhirtypes
+    ```
+
+    ```bash yarn
+    yarn add @medplum/core @medplum/fhirtypes
+    ```
+
+    ```bash pnpm
+    pnpm add @medplum/core @medplum/fhirtypes
+    ```
+
+    </CodeGroup>
+
+    `@medplum/core` is the main SDK package (version `5.1.6`). It ships both ESM and CJS builds and requires Node.js `^22.18.0` or `>=24.2.0`.
+
+    `@medplum/fhirtypes` provides TypeScript type definitions for all FHIR R4 resources. It has no runtime footprint.
+  </Step>
+
+  <Step title="Initialize MedplumClient">
+    Create a `MedplumClient` instance. For server-side or CLI usage, pass your `baseUrl` and credentials. For browser apps, `baseUrl` defaults to `https://api.medplum.com/`.
+
+    ```typescript client.ts
+    import { MedplumClient } from '@medplum/core';
+
+    const medplum = new MedplumClient({
+      baseUrl: 'https://api.medplum.com/',
+      clientId: 'YOUR_CLIENT_ID',
+      clientSecret: 'YOUR_CLIENT_SECRET',
+    });
+    ```
+
+    Key `MedplumClientOptions` fields:
+
+    | Option | Default | Description |
+    |---|---|---|
+    | `baseUrl` | `https://api.medplum.com/` | Base URL of the Medplum server |
+    | `clientId` | — | OAuth2 client ID from your project |
+    | `clientSecret` | — | OAuth2 client secret (server-side only) |
+    | `accessToken` | — | Use a pre-obtained access token directly |
+    | `fhirUrlPath` | `fhir/R4/` | Path to the FHIR endpoint |
+    | `cacheTime` | `60000` | Resource cache TTL in milliseconds |
+    | `logLevel` | `'none'` | `'none'` \| `'basic'` \| `'verbose'` |
+
+    <Tip>
+      In a browser app using PKCE, omit `clientSecret` and call `startPkceLogin()` instead. The client will handle token exchange automatically.
+    </Tip>
+  </Step>
+
+  <Step title="Authenticate with client credentials">
+    For server-side or automated scripts, authenticate using OAuth2 client credentials:
+
+    ```typescript auth.ts
+    import { MedplumClient } from '@medplum/core';
+
+    const medplum = new MedplumClient({
+      baseUrl: 'https://api.medplum.com/',
+    });
+
+    // Authenticate with client ID and secret
+    await medplum.startClientLogin('YOUR_CLIENT_ID', 'YOUR_CLIENT_SECRET');
+
+    console.log('Authenticated as project:', medplum.getActiveLogin()?.project?.display);
+    ```
+
+    After a successful login, the client stores the access token and refreshes it automatically before expiry (5 minutes before expiration by default).
+  </Step>
+
+  <Step title="Create a Patient resource">
+    Once authenticated, you can create FHIR resources using `createResource`:
+
+    ```typescript create-patient.ts
+    import { MedplumClient } from '@medplum/core';
+    import type { Patient } from '@medplum/fhirtypes';
+
+    const medplum = new MedplumClient({ baseUrl: 'https://api.medplum.com/' });
+    await medplum.startClientLogin('YOUR_CLIENT_ID', 'YOUR_CLIENT_SECRET');
+
+    const patient: Patient = await medplum.createResource<Patient>({
+      resourceType: 'Patient',
+      name: [
+        {
+          use: 'official',
+          family: 'Smith',
+          given: ['Jane'],
+        },
+      ],
+      birthDate: '1990-06-15',
+      gender: 'female',
+      telecom: [
+        {
+          system: 'email',
+          value: 'jane.smith@example.com',
+        },
+      ],
+    });
+
+    console.log('Created patient with id:', patient.id);
+    ```
+
+    The server assigns a UUID `id` and a `meta.versionId` on creation. The returned object is the full resource as stored.
+  </Step>
+
+  <Step title="Search for resources">
+    Use `searchResources` to query FHIR resources by search parameters:
+
+    ```typescript search.ts
+    import { MedplumClient } from '@medplum/core';
+    import type { Patient } from '@medplum/fhirtypes';
+
+    const medplum = new MedplumClient({ baseUrl: 'https://api.medplum.com/' });
+    await medplum.startClientLogin('YOUR_CLIENT_ID', 'YOUR_CLIENT_SECRET');
+
+    // Search patients by family name
+    const patients = await medplum.searchResources<Patient>('Patient', {
+      family: 'Smith',
+      _sort: '-_lastUpdated',
+      _count: '10',
+    });
+
+    for (const p of patients) {
+      const name = p.name?.[0];
+      console.log(`${name?.given?.join(' ')} ${name?.family} — id: ${p.id}`);
+    }
+    ```
+
+    You can also read a single resource by its ID:
+
+    ```typescript read-resource.ts
+    import { MedplumClient } from '@medplum/core';
+
+    const medplum = new MedplumClient({ baseUrl: 'https://api.medplum.com/' });
+    await medplum.startClientLogin('YOUR_CLIENT_ID', 'YOUR_CLIENT_SECRET');
+
+    const patient = await medplum.readResource('Patient', 'PATIENT_ID');
+    console.log(patient.name);
+    ```
+
+    Or update a resource with `updateResource`:
+
+    ```typescript update-resource.ts
+    import { MedplumClient } from '@medplum/core';
+    import type { Patient } from '@medplum/fhirtypes';
+
+    const medplum = new MedplumClient({ baseUrl: 'https://api.medplum.com/' });
+    await medplum.startClientLogin('YOUR_CLIENT_ID', 'YOUR_CLIENT_SECRET');
+
+    const existing = await medplum.readResource('Patient', 'PATIENT_ID');
+
+    const updated = await medplum.updateResource<Patient>({
+      ...existing,
+      birthDate: '1990-06-15',
+    });
+
+    console.log('Updated versionId:', updated.meta?.versionId);
+    ```
+  </Step>
+
+</Steps>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+<Columns cols={2}>
+  <Card title="FHIR basics" icon="book" href="/fhir-basics">
+    Understand resources, references, identifiers, and search parameters.
+  </Card>
+  <Card title="Bots" icon="bolt" href="/bots/index">
+    Automate workflows with event-driven serverless functions.
+  </Card>
+  <Card title="React components" icon="layout" href="/react/index">
+    Build clinical UIs with pre-built FHIR-aware React components.
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting/index">
+    Deploy Medplum on your own AWS, GCP, or Azure infrastructure.
+  </Card>
+</Columns>

@@ -1,0 +1,76 @@
+---
+title: "Medplum Bots"
+description: "Write and deploy serverless automation logic that runs in response to FHIR events — no servers required."
+---
+
+Medplum Bots are serverless functions that execute in response to FHIR resource changes. They run as AWS Lambda functions in a heavily sandboxed environment, giving you the full power of JavaScript/TypeScript without any infrastructure to manage.
+
+<Note>
+  Bots are a paid feature on the Medplum hosted service and must be enabled by a Super Admin. Contact [info@medplum.com](mailto:info@medplum.com) or reach out in the [Discord channel](https://discord.gg/medplum).
+</Note>
+
+## What are Bots?
+
+A Bot is a single TypeScript/JavaScript file with an async `handler` entry point. When a matching FHIR resource is created or updated, Medplum triggers the Bot via a [Subscription](/subscriptions/index), passing the changed resource as the event input.
+
+Bots replace the need for custom HTTP servers, webhook infrastructure, and credential management. All logic lives as a versioned FHIR `Bot` resource with full audit history.
+
+## Common use cases
+
+- **Lab result processing** — parse incoming lab observations, flag critical values, and notify care teams
+- **HL7 v2 conversion** — accept pipe-delimited HL7 messages and convert them to FHIR resources
+- **Clinical notifications** — send messages or create `Communication` resources when new results arrive
+- **Questionnaire automation** — create follow-up `Task` or `CarePlan` resources from a completed `QuestionnaireResponse`
+- **Default value population** — fill in missing fields when a resource is created
+
+## How Bots work
+
+```
+FHIR resource created/updated
+        │
+        ▼
+  Subscription (criteria: "Patient")
+        │
+        ▼
+  Bot handler executes (AWS Lambda)
+        │
+        ▼
+  medplum client available for further FHIR operations
+```
+
+A `Subscription` with channel type `rest-hook` and endpoint `Bot/<BOT_ID>` is all that is needed to wire a Bot to any FHIR resource type.
+
+## A simple Bot handler
+
+```typescript
+import { BotEvent, MedplumClient } from '@medplum/core';
+import { Patient } from '@medplum/fhirtypes';
+
+export async function handler(medplum: MedplumClient, event: BotEvent): Promise<void> {
+  const patient = event.input as Patient;
+
+  const firstName = patient.name?.[0]?.given?.[0];
+  const lastName = patient.name?.[0]?.family;
+
+  // Create a welcome Communication resource
+  await medplum.createResource({
+    resourceType: 'Communication',
+    status: 'completed',
+    subject: { reference: `Patient/${patient.id}` },
+    payload: [{ contentString: `Welcome, ${firstName} ${lastName}!` }],
+  });
+}
+```
+
+`event.input` is the FHIR resource that triggered the Subscription. The `medplum` client is pre-authenticated and scoped to your project.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Bot basics" icon="rocket" href="/bots/bot-basics">
+    Step-by-step guide to creating, deploying, and testing your first Bot.
+  </Card>
+  <Card title="Subscriptions" icon="bell" href="/subscriptions/index">
+    Learn how Subscriptions trigger Bots and how to configure them.
+  </Card>
+</CardGroup>

@@ -1,0 +1,49 @@
+---
+title: "Self-Hosting Overview"
+description: "Deploy and operate Medplum on your own infrastructure — AWS, Azure, GCP, or Docker."
+---
+
+Medplum is an open-source healthcare development platform you can run in your own environment. Self-hosting gives you full control over where your data lives and how it is operated.
+
+## Why self-host?
+
+- **Data sovereignty** — keep patient data inside your own infrastructure and jurisdiction.
+- **Compliance control** — apply your own security policies, audit logging, and access controls.
+- **Cost optimization** — use existing cloud credits, reserved instances, or on-premises hardware.
+- **Custom integrations** — connect directly to internal systems without traversing a third-party network.
+
+<Note>
+  Prefer a managed option? The Medplum team operates a hosted service at [app.medplum.com](https://app.medplum.com) with no infrastructure to manage. See [best practices](/self-hosting/best-practices) for operational guidance before deciding.
+</Note>
+
+## Architecture components
+
+Every Medplum deployment requires the same core services:
+
+| Component | Purpose |
+|---|---|
+| **Medplum server** | FHIR API, auth, bots, subscriptions |
+| **PostgreSQL** | Primary relational database |
+| **Redis** | Caching and background job queue (BullMQ) |
+| **Object storage** | Binary data and file attachments |
+
+## Deployment options
+
+<CardGroup cols={2}>
+  <Card title="Deploy on AWS" icon="aws" href="/self-hosting/install-on-aws">
+    Production-ready CDK stack with ECS Fargate, RDS Aurora PostgreSQL, ElastiCache Redis, and S3. This is the same setup Medplum uses for its own hosted service.
+  </Card>
+  <Card title="Deploy on Azure" icon="microsoft" href="/self-hosting/install-on-azure">
+    Terraform-based deployment using AKS, Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, and Azure Blob Storage.
+  </Card>
+  <Card title="Deploy on GCP" icon="google" href="/self-hosting/install-on-gcp">
+    Terraform-based deployment using GKE, Cloud SQL PostgreSQL, Memorystore Redis, and Cloud Storage with CDN.
+  </Card>
+  <Card title="Run with Docker Compose" icon="docker" href="/self-hosting/running-full-medplum-stack-in-docker">
+    Spin up the full stack locally in two commands. Suitable for development and testing only.
+  </Card>
+</CardGroup>
+
+<Tip>
+  AWS is the recommended path for new production deployments. The CDK stack is the most automated option and is actively maintained by the Medplum team.
+</Tip>

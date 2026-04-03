@@ -1,0 +1,76 @@
+---
+title: "Run with Docker Compose"
+description: "Run the full Medplum stack locally using Docker Compose for development and testing."
+---
+
+Medplum provides a Docker Compose file that starts the complete stack — server, app, PostgreSQL, and Redis — with no configuration required.
+
+<Warning>
+  This setup is intended for local development and testing only. Do not use it in production.
+</Warning>
+
+## What's included
+
+| Container | Image | Purpose |
+|---|---|---|
+| Medplum server | `medplum/medplum-server` | FHIR API and auth |
+| Medplum app | `medplum/medplum-app` | Web UI |
+| PostgreSQL | `postgres` | Primary database |
+| Redis | `redis` | Cache and job queue |
+
+All containers are pre-configured to work together with no additional setup.
+
+## Steps
+
+<Steps>
+  <Step title="Install Docker Desktop">
+    Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/) for your platform. Ensure Docker is running before continuing.
+  </Step>
+
+  <Step title="Start the stack">
+    Pull the Docker Compose file and start all services:
+
+    ```bash
+    curl https://raw.githubusercontent.com/medplum/medplum/refs/heads/main/docker-compose.full-stack.yml > docker-compose.yml
+    docker compose up -d
+    ```
+
+    The `-d` flag runs the containers in the background (detached mode).
+
+    <Note>
+      The first startup takes a few minutes. The Medplum server performs one-time initialization before it passes its healthcheck and the app becomes available.
+    </Note>
+  </Step>
+
+  <Step title="Access the application">
+    Once all containers are healthy, open your browser:
+
+    | Service | URL |
+    |---|---|
+    | Medplum app | http://localhost:3000 |
+    | Medplum API | http://localhost:8103 |
+
+    Log in with the default credentials:
+
+    - **Email:** `admin@example.com`
+    - **Password:** `medplum_admin`
+  </Step>
+
+  <Step title="Stop the stack">
+    Press `Ctrl+C` if running in the foreground, or run:
+
+    ```bash
+    docker compose down
+    ```
+
+    To remove all data volumes as well:
+
+    ```bash
+    docker compose down -v
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  To upgrade to the latest Medplum images, run `docker compose pull` followed by `docker compose up -d`.
+</Tip>

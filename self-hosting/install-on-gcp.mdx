@@ -1,0 +1,189 @@
+---
+title: "Deploy on GCP"
+description: "Deploy Medplum on Google Cloud Platform using GKE, Cloud SQL PostgreSQL, Memorystore Redis, and Cloud Storage."
+---
+
+The GCP deployment uses Terraform to provision static infrastructure and a Helm chart to deploy the Medplum application into GKE. This is a beta option validated for production use.
+
+<Warning>
+  This process requires strong familiarity with GCP, Terraform, Kubernetes, and Helm. Contact [hello@medplum.com](mailto:hello@medplum.com) or [join Discord](https://discord.gg/medplum) if you have questions.
+</Warning>
+
+## Architecture
+
+| Component | GCP service |
+|---|---|
+| API server | GKE (autopilot mode) |
+| API ingress | GCP Load Balancer + Cloud Armor (WAF) |
+| Database | Cloud SQL (PostgreSQL) |
+| Cache / queues | Memorystore (Redis) |
+| Object storage | Cloud Storage |
+| Frontend CDN | External HTTP(S) Load Balancer + Cloud CDN |
+| Secrets | Secret Manager |
+| TLS certificates | Google-managed certificates |
+| Outbound traffic | Cloud NAT (fixed IP) |
+
+The deployment is split into two layers: Terraform provisions all static infrastructure, and a Helm chart deploys the Medplum backend into the GKE cluster.
+
+## Prerequisites
+
+- [Terraform](https://www.terraform.io/downloads.html) installed locally
+- GCP account with a project and billing enabled
+- Google Cloud SDK installed and authenticated (`gcloud auth login`)
+- `kubectl` and `helm` installed locally
+
+## Deployment steps
+
+<Steps>
+  <Step title="Deploy infrastructure with Terraform">
+    Clone the repository and navigate to the GCP Terraform directory:
+
+    ```bash
+    git clone https://github.com/medplum/medplum
+    cd medplum/terraform/gcp/
+    ```
+
+    Edit `terraform.tfvars` with your values:
+
+    ```hcl
+    project_id = "your-project-id"
+    region     = "your-region"
+    zone       = "your-zone"
+
+    labels = {
+      env     = "prod"
+      purpose = "medplum"
+      owner   = "your-team"
+    }
+    ```
+
+    Then initialize and apply:
+
+    ```bash
+    terraform init
+    terraform plan
+    terraform apply
+    ```
+
+    <Note>
+      Your local machine's public IP must be included in `master_authorized_networks` in `terraform.tfvars` to access the GKE control plane. Find your IP with `curl ifconfig.me` and add it before running `terraform apply`.
+    </Note>
+  </Step>
+
+  <Step title="Create the configuration secret">
+    Create a secret in Secret Manager and populate it with the Medplum server configuration:
+
+    ```bash
+    gcloud secrets create config-secret --replication-policy="automatic"
+    ```
+
+    Create `secret_data.json` with your connection details:
+
+    ```json
+    {
+      "port": 8103,
+      "baseUrl": "https://api.yourdomain.com/",
+      "database": {
+        "host": "YOUR_CLOUD_SQL_HOST",
+        "port": 5432,
+        "dbname": "medplum",
+        "username": "medplum",
+        "password": "medplum"
+      },
+      "redis": {
+        "host": "YOUR_MEMORYSTORE_HOST",
+        "port": 6379
+      }
+    }
+    ```
+
+    Add the secret version:
+
+    ```bash
+    gcloud secrets versions add config-secret --data-file=secret_data.json
+    ```
+  </Step>
+
+  <Step title="Configure DNS">
+    Retrieve the external load balancer IP:
+
+    ```bash
+    gcloud compute addresses list --global --filter="name=('medplum-elb')"
+    ```
+
+    In your DNS provider, create A records pointing both `app.yourdomain.com` and `storage.yourdomain.com` to this IP address.
+  </Step>
+
+  <Step title="Deploy the backend with Helm">
+    Get GKE credentials and deploy via Helm:
+
+    ```bash
+    gcloud container clusters get-credentials medplum-gke \
+      --region your-region \
+      --project your-project-id
+
+    cd medplum/helm
+    ```
+
+    Edit `values.yaml`:
+
+    ```yaml
+    global:
+      cloudProvider: gcp
+      gcp:
+        projectId: "your-project-id"
+        secretId: "config-secret"
+
+    serviceAccount:
+      annotations:
+        iam.gke.io/gcp-service-account: "medplum-server@your-project-id.iam.gserviceaccount.com"
+
+    ingress:
+      deploy: true
+      domain: api.yourdomain.com
+    ```
+
+    Install the chart:
+
+    ```bash
+    helm install medplum-server . -n medplum --create-namespace -f values.yaml
+    ```
+
+    After deployment, get the ingress IP and update your DNS record for `api.yourdomain.com`:
+
+    ```bash
+    kubectl get ingress medplum-server --namespace medplum
+    ```
+  </Step>
+
+  <Step title="Deploy the frontend">
+    Build the app with your API URL baked in, then upload to the Cloud Storage CDN bucket:
+
+    ```bash
+    # In the root of the cloned repo
+    echo "MEDPLUM_BASE_URL=https://api.yourdomain.com/" > packages/app/.env
+    npm ci --include dev
+    npm run build:fast
+
+    APP_BUCKET=medplum-static-assets ./scripts/deploy-app-gcp.sh
+    ```
+  </Step>
+
+  <Step title="Verify the deployment">
+    Test the API health endpoint:
+
+    ```bash
+    curl https://api.yourdomain.com/health
+    ```
+
+    Then visit `https://app.yourdomain.com` in a browser to confirm the frontend is serving correctly.
+  </Step>
+</Steps>
+
+## Clean up
+
+```bash
+terraform destroy
+```
+
+This destroys all Terraform-managed resources including the GKE cluster and load balancer.

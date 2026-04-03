@@ -1,0 +1,95 @@
+---
+title: "Introduction to Medplum"
+description: "Medplum is an open-source healthcare developer platform with a FHIR server, SDK, bots, and React components for building compliant healthcare applications."
+keywords: ["medplum", "fhir", "healthcare", "ehr", "headless", "open source"]
+---
+
+## What is Medplum?
+
+Medplum is a **headless EHR** — an open-source healthcare developer platform that gives you the infrastructure to build compliant clinical applications without managing the underlying complexity of healthcare data standards, auth, and integrations.
+
+Rather than shipping a monolithic EHR with a fixed UI, Medplum exposes everything through open APIs. You bring your own frontend, your own workflows, and your own user experience. Medplum handles the FHIR data store, authentication, automation, and connectivity to the broader healthcare ecosystem.
+
+Medplum is built on [FHIR R4](https://hl7.org/fhir/R4/), the HL7 standard for healthcare data interoperability, and is licensed under [Apache 2.0](https://github.com/medplum/medplum/blob/main/LICENSE.txt).
+
+## Key components
+
+<Columns cols={2}>
+  <Card title="Clinical Data Repository (CDR)" icon="database">
+    A fully conformant FHIR R4 server. Store, search, and retrieve any FHIR resource with a standards-based REST or GraphQL API.
+  </Card>
+  <Card title="Authentication and authorization" icon="lock">
+    OAuth2 and SMART-on-FHIR compliant auth with support for user roles, access policies, and project-level isolation.
+  </Card>
+  <Card title="TypeScript / JavaScript SDK" icon="code">
+    The `@medplum/core` package provides `MedplumClient` — a typed client for all FHIR operations, subscriptions, and admin tasks.
+  </Card>
+  <Card title="Bots" icon="bolt">
+    Serverless TypeScript functions that execute in response to FHIR Subscription events. Automate workflows without managing infrastructure.
+  </Card>
+  <Card title="React component library" icon="layout">
+    `@medplum/react` ships pre-built components — `ResourceTable`, `PatientTimeline`, `QuestionnaireForm`, and more — for rapid UI development.
+  </Card>
+  <Card title="Agent" icon="server">
+    An on-premises agent for connecting legacy devices and systems (HL7/MLLP, ASTM, DICOM) to the Medplum cloud securely.
+  </Card>
+  <Card title="CLI" icon="terminal">
+    The `@medplum/cli` package enables bot deployment, project management, and FHIR bulk operations from the command line.
+  </Card>
+  <Card title="App" icon="monitor">
+    A hosted admin UI at [app.medplum.com](https://app.medplum.com) for managing projects, users, resources, and bots.
+  </Card>
+</Columns>
+
+## Architecture overview
+
+| Layer | Component | Description |
+|---|---|---|
+| Data | FHIR CDR | Stores all clinical data as FHIR R4 resources with full audit logging |
+| Auth | OAuth2 / SMART | Project-scoped identity, access tokens, client credentials, and PKCE flows |
+| Compute | Bots | Event-driven TypeScript functions triggered by FHIR Subscriptions |
+| Connectivity | Agent | On-prem bridge for HL7 v2, ASTM, and DICOM devices |
+| Sync | FHIRcast | Real-time context synchronization between clinical apps |
+| UI | React library | Pre-built FHIR-aware components for rapid frontend development |
+| Tooling | CLI + SDK | TypeScript client and command-line tools for all API operations |
+
+## Explore the docs
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Register a project and make your first FHIR API call in minutes.
+  </Card>
+  <Card title="FHIR basics" icon="book" href="/fhir-basics">
+    Learn the FHIR standard — resources, references, identifiers, and search.
+  </Card>
+  <Card title="Bots" icon="bolt" href="/bots/index">
+    Automate clinical workflows with event-driven serverless functions.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/auth/index">
+    Configure OAuth2, SMART-on-FHIR, and access policies for your project.
+  </Card>
+  <Card title="React components" icon="layout" href="/react/index">
+    Explore the pre-built component library for building healthcare UIs.
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting/index">
+    Deploy Medplum on AWS, GCP, Azure, or Docker.
+  </Card>
+</Columns>
+
+## Who uses Medplum?
+
+**Digital health startups** use Medplum to ship faster. Rather than building a FHIR server, auth system, and audit trail from scratch, teams focus on clinical workflows and user experience from day one.
+
+**Health systems and enterprise teams** use Medplum as a flexible integration layer — connecting legacy HL7 systems, lab vendors, and prescribing networks to modern FHIR-based applications via the Agent and integration library.
+
+**Labs and diagnostics companies** use Medplum to receive orders, return results, and maintain a longitudinal record of patient data using standard FHIR resources like `ServiceRequest`, `DiagnosticReport`, and `Observation`.
+
+## Open source
+
+Medplum is open source under the Apache 2.0 license. The full source is available at [github.com/medplum/medplum](https://github.com/medplum/medplum), including the FHIR server, SDK, React components, CLI, and example applications.
+
+<Tip>
+  Medplum is available as a hosted cloud service at [app.medplum.com](https://app.medplum.com) or as a self-hosted deployment on your own infrastructure. The API is identical in both cases.
+</Tip>
+
+Community support is available on [Discord](https://discord.gg/medplum). Bug reports and feature requests go to [GitHub Issues](https://github.com/medplum/medplum/issues).

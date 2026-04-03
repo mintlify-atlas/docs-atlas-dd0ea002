@@ -1,0 +1,229 @@
+---
+title: "Best Practices"
+description: "Security hardening, performance tuning, and operational best practices for production Medplum deployments."
+---
+
+This guide covers operational practices that help you run a stable, maintainable Medplum deployment and set yourself up for long-term success. The recommendations here come from patterns observed across self-hosted deployments — both what works well and what causes pain over time.
+
+## Infrastructure organization
+
+### Use a dedicated cloud account
+
+Deploy Medplum in a dedicated cloud account (for example, an AWS child account under your organization). This provides:
+
+- **Smaller blast radius**: Medplum resources are isolated from other workloads.
+- **Simplified access control**: Scoped permissions for audits, compliance reviews, or vendor support.
+- **Cost visibility**: Clear attribution of Medplum infrastructure costs.
+- **Support readiness**: Granting temporary access to a dedicated account for troubleshooting is straightforward and does not expose your broader infrastructure.
+
+### Infrastructure as code
+
+Manage all infrastructure through code (Terraform, CDK, CloudFormation) rather than manual console changes.
+
+Benefits:
+- Audit trail of what changed and when
+- Reproducible environments for staging and disaster recovery
+- Easier onboarding for new team members
+- Ability to roll back problematic changes
+
+Medplum provides [CDK templates](/self-hosting/install-on-aws) as a starting point. If you diverge from these templates, document your changes and the reasoning behind them.
+
+## Security hardening
+
+### Network architecture
+
+- Database and Redis instances must **not** be publicly accessible. Place them in private subnets.
+- Route administrative access (SSH, database connections) through a bastion host or VPN — never expose management ports to the public internet.
+- Review security group rules on a regular cadence. They accumulate exceptions over time.
+
+### CORS and allowed origins
+
+Set `allowedOrigins` in your server config to an explicit list of trusted origins. The `appBaseUrl` is included automatically. Avoid using `*` in production.
+
+```json
+{
+  "allowedOrigins": "https://app.example.com,https://portal.example.com"
+}
+```
+
+### Secrets management
+
+- Store all credentials in a secrets manager (AWS Secrets Manager, Parameter Store, HashiCorp Vault) — not in environment variables or plaintext config files.
+- Implement a rotation strategy for database credentials and API keys.
+- Audit who has access to production secrets.
+
+### Patching cadence
+
+Establish a regular schedule for:
+
+- OS-level security patches on EC2 instances
+- Container base image updates (ECS/Fargate)
+- Dependency updates in any custom code or bots
+
+## Database management
+
+### Treat the database as sacred
+
+The Medplum database schema is managed by the application. Manual changes to PostgreSQL — adding tables, columns, indexes, or modifying data directly — can cause upgrade failures and unexpected behavior.
+
+If you must make direct database changes:
+
+1. Document everything: what changed, when, why, and by whom.
+2. Understand the risks: schema modifications may conflict with future Medplum upgrades.
+3. Disclose changes upfront if you later engage Medplum for support — this is critical for diagnosis.
+
+<Warning>
+  Treat direct database manipulation as a last resort, not a routine operational tool.
+</Warning>
+
+### Connection pooling
+
+Pay attention to database connection limits as you scale horizontally. Each application server maintains its own connection pool. With multiple ECS tasks or pods, it is easy to exhaust RDS connection limits without realizing it.
+
+Monitor `medplum.db.queriesAwaitingClient` (via OpenTelemetry) for sustained values that indicate pool exhaustion.
+
+### PostgreSQL major version upgrades
+
+PostgreSQL major version upgrades (e.g., 14 → 15 → 16) require manual planning. AWS does not perform them automatically for RDS.
+
+- Schedule upgrades regularly. Running an unsupported version limits your options during incidents.
+- Test in staging first. Major version upgrades can surface compatibility issues.
+- Budget the time: including preparation, testing, and execution, a major version upgrade typically requires several days of focused effort.
+
+### Database SSL
+
+Require encrypted connections to PostgreSQL in production:
+
+```json
+{
+  "database": {
+    "ssl": {
+      "require": true,
+      "rejectUnauthorized": true
+    }
+  }
+}
+```
+
+When using AWS RDS, supply the RDS CA certificate in the `ssl.ca` field. See [Server Configuration](/self-hosting/server-config) for the full SSL options reference.
+
+## Redis configuration
+
+- Keep Redis in a private subnet alongside your application servers.
+- Monitor memory usage — Redis is an in-memory store. Evictions degrade performance and are an early sign of capacity pressure.
+- Enable TLS for Redis connections in production (set `tls: {}` in the Redis secrets object when using AWS ElastiCache).
+
+## S3 presigned URLs for file access
+
+For production deployments, use CloudFront presigned URLs rather than direct S3 URLs for binary file access. This provides:
+
+- Controlled, time-limited access to files
+- Reduced direct S3 egress costs
+- The ability to revoke access by rotating the signing key
+
+Configure `signingKeyId`, `signingKey`, and `signingKeyPassphrase` in your server config. See [Presigned URLs](/self-hosting/best-practices) for setup steps.
+
+## Capacity planning
+
+### Run with headroom
+
+Do not target maximum CPU utilization. Running servers at 70–80% CPU leaves no headroom for traffic spikes, garbage collection pauses, or unexpected load.
+
+Recommended targets:
+
+| Resource | Target | Alert at |
+|---|---|---|
+| App server CPU | 40–50% | 60–70% |
+| Database writer CPU | < 60% | 50–60% |
+| Redis memory | < 70% | 80% |
+
+A system with headroom absorbs surprises gracefully. A system running hot turns small spikes into cascading failures.
+
+### Node.js CPU threshold
+
+Because Node.js is single-threaded for application code, one fully-utilized CPU core is 100% application capacity. Calculate your alert threshold as:
+
+```
+alert threshold = (1 / number_of_cpu_cores) * 100
+```
+
+Set this as your container CPU alert. When the event loop is saturated, additional requests queue up and response times degrade exponentially.
+
+## Backup and disaster recovery
+
+### Verify your backups
+
+Having automated RDS snapshots enabled is necessary but not sufficient.
+
+<Steps>
+  <Step title="Enable automated backups">
+    Configure RDS automated snapshots with an appropriate retention period (7–35 days).
+  </Step>
+  <Step title="Test restores periodically">
+    Actually spin up a database from a snapshot and verify data integrity. A backup you have never restored is a backup you cannot trust.
+  </Step>
+  <Step title="Document your RTO/RPO">
+    Know how long recovery takes (Recovery Time Objective) and how much data loss is acceptable (Recovery Point Objective).
+  </Step>
+  <Step title="Practice point-in-time recovery">
+    RDS supports PITR. Understand how to use it before you need it during an incident.
+  </Step>
+</Steps>
+
+### Multi-AZ and redundancy
+
+For production:
+
+- Configure RDS for Multi-AZ deployment.
+- Spread application server tasks across multiple availability zones.
+- Understand what happens to your deployment during an AZ failure — ideally by simulating it in staging.
+
+## Upgrade strategy
+
+### Stay reasonably current
+
+Drifting too far behind Medplum releases creates compounding problems:
+
+- Security patches do not reach you.
+- Bug fixes you need are not available.
+- Eventually upgrading requires jumping multiple versions, which is riskier.
+
+<Tip>
+  Stay within 2–3 minor versions of the latest release. Subscribe to [Medplum GitHub releases](https://github.com/medplum/medplum/releases) or join [Discord](https://discord.gg/medplum) to stay informed about new versions and breaking changes.
+</Tip>
+
+### Maintain a staging environment
+
+Before applying any Medplum upgrade to production:
+
+<Steps>
+  <Step title="Apply to staging">
+    Deploy the upgrade to a staging environment that mirrors production as closely as possible.
+  </Step>
+  <Step title="Run tests">
+    Execute your test suite and smoke tests. Verify integrations still work as expected.
+  </Step>
+  <Step title="Deploy to production">
+    Only after staging passes, proceed to production. Monitor closely during the first few hours after deployment.
+  </Step>
+</Steps>
+
+## Document your customizations
+
+If you have made modifications beyond the standard Medplum deployment — custom bot dependencies, forked components, unusual configurations, additional services — document them thoroughly.
+
+Future you, your teammates, and anyone providing support will need to understand:
+
+- What was changed from the defaults
+- Why the change was made
+- Any operational implications
+
+## Getting help
+
+Even well-run self-hosted deployments occasionally need assistance. To make support engagements productive:
+
+- **Maintain access paths**: The dedicated cloud account structure pays off here — granting temporary access is straightforward.
+- **Keep logs accessible**: Having recent logs available accelerates diagnosis significantly.
+- **Disclose customizations upfront**: Manual database changes, forked code, or unusual configurations are critical context for support.
+
+Reach out at [support@medplum.com](mailto:support@medplum.com) or on [Discord](https://discord.gg/medplum).

@@ -1,0 +1,268 @@
+---
+title: "FHIR REST API"
+description: "Interact with FHIR R4 resources using standard REST operations — create, read, update, delete, and search."
+---
+
+Medplum is FHIR-native, storing all clinical data in [FHIR R4 (4.0.1)](https://www.hl7.org/fhir/R4/) format. The REST API follows the FHIR RESTful API specification.
+
+**Base path:** `https://api.medplum.com/fhir/R4`
+
+All requests require an `Authorization: Bearer <token>` header. Resource bodies use `Content-Type: application/fhir+json`.
+
+## Supported operations
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| `GET` | `/fhir/R4/{resourceType}/{id}` | Read a resource |
+| `GET` | `/fhir/R4/{resourceType}/{id}/_history/{vid}` | Read a specific version |
+| `POST` | `/fhir/R4/{resourceType}` | Create a resource |
+| `PUT` | `/fhir/R4/{resourceType}/{id}` | Update a resource |
+| `PATCH` | `/fhir/R4/{resourceType}/{id}` | Patch a resource |
+| `DELETE` | `/fhir/R4/{resourceType}/{id}` | Delete a resource |
+| `GET` | `/fhir/R4/{resourceType}` | Search resources |
+| `POST` | `/fhir/R4/` | Batch or transaction bundle |
+
+## Read a resource
+
+```bash
+curl https://api.medplum.com/fhir/R4/Patient/my-patient-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "resourceType": "Patient",
+  "id": "my-patient-id",
+  "meta": {
+    "versionId": "1",
+    "lastUpdated": "2024-01-15T10:30:00.000Z"
+  },
+  "name": [{ "given": ["Jane"], "family": "Doe" }],
+  "birthDate": "1990-06-15"
+}
+```
+
+## Read a specific version (vread)
+
+Each update creates a new version. Retrieve a specific historical version using the version ID:
+
+```bash
+curl https://api.medplum.com/fhir/R4/Patient/my-patient-id/_history/1 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Create a resource
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/Patient \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -d '{
+    "resourceType": "Patient",
+    "name": [{ "given": ["Jane"], "family": "Doe" }],
+    "birthDate": "1990-06-15",
+    "gender": "female"
+  }'
+```
+
+**Response (201 Created):**
+
+The server returns the created resource with its assigned `id` and `meta.versionId`.
+
+```json
+{
+  "resourceType": "Patient",
+  "id": "a12b3c4d-1234-5678-abcd-ef0123456789",
+  "meta": {
+    "versionId": "1",
+    "lastUpdated": "2024-01-15T10:30:00.000Z",
+    "project": "my-project-id"
+  },
+  "name": [{ "given": ["Jane"], "family": "Doe" }],
+  "birthDate": "1990-06-15",
+  "gender": "female"
+}
+```
+
+## Update a resource
+
+Replace a resource entirely with a `PUT` request. Include the current `versionId` in an `If-Match` header to prevent lost updates.
+
+```bash
+curl -X PUT https://api.medplum.com/fhir/R4/Patient/my-patient-id \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -H "If-Match: W/\"1\"" \
+  -d '{
+    "resourceType": "Patient",
+    "id": "my-patient-id",
+    "name": [{ "given": ["Jane"], "family": "Smith" }],
+    "birthDate": "1990-06-15",
+    "gender": "female"
+  }'
+```
+
+<Note>
+If the `If-Match` version does not match the server's current version, the server returns `409 Conflict`. Fetch the latest version and retry.
+</Note>
+
+## Patch a resource
+
+Apply a partial update using [JSON Patch](https://jsonpatch.com/) with `Content-Type: application/json-patch+json`:
+
+```bash
+curl -X PATCH https://api.medplum.com/fhir/R4/Patient/my-patient-id \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json-patch+json" \
+  -d '[
+    { "op": "replace", "path": "/birthDate", "value": "1990-07-20" },
+    { "op": "add", "path": "/telecom", "value": [{ "system": "phone", "value": "555-0100" }] }
+  ]'
+```
+
+## Delete a resource
+
+```bash
+curl -X DELETE https://api.medplum.com/fhir/R4/Patient/my-patient-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:** `200 OK` with an `OperationOutcome` confirming deletion.
+
+## Search
+
+Search for resources using query parameters. See [FHIR Search](/api/fhir/search) for full parameter reference.
+
+```bash
+curl "https://api.medplum.com/fhir/R4/Patient?family=Doe&birthdate=1990-06-15" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 1,
+  "entry": [
+    {
+      "fullUrl": "https://api.medplum.com/fhir/R4/Patient/my-patient-id",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "my-patient-id",
+        "name": [{ "given": ["Jane"], "family": "Doe" }],
+        "birthDate": "1990-06-15"
+      },
+      "search": { "mode": "match" }
+    }
+  ],
+  "link": [
+    { "relation": "self", "url": "https://api.medplum.com/fhir/R4/Patient?family=Doe&birthdate=1990-06-15" }
+  ]
+}
+```
+
+## Batch and transaction bundles
+
+Submit multiple operations in a single request using a FHIR Bundle.
+
+- **Batch**: Each entry is processed independently. Failures do not affect other entries.
+- **Transaction**: All entries succeed or all fail (atomic).
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -d '{
+    "resourceType": "Bundle",
+    "type": "transaction",
+    "entry": [
+      {
+        "fullUrl": "urn:uuid:patient-1",
+        "resource": {
+          "resourceType": "Patient",
+          "name": [{ "given": ["Alice"], "family": "Chen" }]
+        },
+        "request": { "method": "POST", "url": "Patient" }
+      },
+      {
+        "resource": {
+          "resourceType": "Observation",
+          "status": "final",
+          "code": { "coding": [{ "system": "http://loinc.org", "code": "29463-7", "display": "Body Weight" }] },
+          "subject": { "reference": "urn:uuid:patient-1" },
+          "valueQuantity": { "value": 70, "unit": "kg" }
+        },
+        "request": { "method": "POST", "url": "Observation" }
+      }
+    ]
+  }'
+```
+
+## Conditional operations
+
+FHIR supports conditional create and update using search parameters instead of a known ID.
+
+**Conditional create** — only create if no matching resource exists:
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/Patient \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -H "If-None-Exist: identifier=http://example.org/mrn|12345" \
+  -d '{ "resourceType": "Patient", "identifier": [{ "system": "http://example.org/mrn", "value": "12345" }] }'
+```
+
+**Conditional update** — update by search rather than ID:
+
+```bash
+curl -X PUT "https://api.medplum.com/fhir/R4/Patient?identifier=http://example.org/mrn|12345" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -d '{ "resourceType": "Patient", "identifier": [{ "system": "http://example.org/mrn", "value": "12345" }], "name": [{ "given": ["Alice"], "family": "Chen" }] }'
+```
+
+## Resource versioning with ETag
+
+Every resource has a `meta.versionId`. The server returns this as an `ETag` header:
+
+```
+ETag: W/"2"
+```
+
+Use `If-Match` on `PUT` requests to enforce optimistic concurrency:
+
+```http
+If-Match: W/"2"
+```
+
+If the version does not match, the server returns `409 Conflict`.
+
+## Error responses
+
+Errors return an `OperationOutcome` resource:
+
+```json
+{
+  "resourceType": "OperationOutcome",
+  "issue": [
+    {
+      "severity": "error",
+      "code": "not-found",
+      "details": { "text": "Not found" }
+    }
+  ]
+}
+```
+
+| HTTP status | `code` value | Meaning |
+|-------------|-------------|---------|
+| `400` | `invalid` | Malformed request or invalid resource |
+| `401` | `unknown` | Missing or expired access token |
+| `403` | `forbidden` | Insufficient access policy permissions |
+| `404` | `not-found` | Resource does not exist |
+| `409` | `conflict` | Version mismatch (`If-Match` failed) |
+| `422` | `processing` | Resource fails FHIR validation |

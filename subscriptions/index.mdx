@@ -1,0 +1,120 @@
+---
+title: "Subscriptions"
+description: "React to FHIR resource changes in real time using Medplum's Subscription system."
+---
+
+Subscriptions are event-driven notifications triggered whenever a FHIR resource is created or updated. They are the primary mechanism for building integrations and automations in Medplum — including triggering [Bots](/bots/index).
+
+## What are Subscriptions?
+
+A `Subscription` resource defines a **criteria** (which resources to watch) and a **channel** (where to send notifications). When a resource matching the criteria is written, Medplum delivers a notification to the configured channel.
+
+Each trigger produces an `AuditEvent` that you can use for monitoring and debugging.
+
+## Subscription channels
+
+| Channel type | Use case |
+|---|---|
+| `rest-hook` | Delivers an HTTP POST to an external URL or a Medplum Bot endpoint |
+| `websocket` | Pushes real-time updates to browser or server clients over a persistent connection |
+
+## Subscription resource example
+
+```json
+{
+  "resourceType": "Subscription",
+  "status": "active",
+  "reason": "Notify on new DiagnosticReports",
+  "criteria": "DiagnosticReport?status=final",
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "https://your-service.example.com/webhook",
+    "payload": "application/fhir+json",
+    "header": ["Authorization: Bearer <TOKEN>"]
+  }
+}
+```
+
+Set `criteria` to any valid FHIR search expression. When a `DiagnosticReport` with `status=final` is created or updated, Medplum POSTs the resource to the endpoint.
+
+<Note>
+  `AuditEvent` cannot be used as subscription criteria. Each Subscription trigger creates an AuditEvent internally, which would cause an infinite notification loop.
+</Note>
+
+## Webhook payload
+
+Medplum sends a POST request to the `endpoint` with:
+
+- **Content-Type:** the value of `channel.payload` (use `application/fhir+json` to receive the FHIR resource)
+- **Body:** the full FHIR resource that triggered the subscription
+- **Headers:** any headers listed in `channel.header`
+
+```json
+{
+  "resourceType": "DiagnosticReport",
+  "id": "abc-123",
+  "status": "final",
+  "subject": { "reference": "Patient/xyz-456" },
+  ...
+}
+```
+
+## WebSocket subscriptions
+
+WebSocket subscriptions allow browser and server clients to receive real-time push notifications without polling.
+
+Use `MedplumClient.subscribeToCriteria()` to subscribe from a TypeScript client:
+
+```typescript
+import { MedplumClient } from '@medplum/core';
+
+const medplum = new MedplumClient();
+
+const subscription = await medplum.subscribeToCriteria('DiagnosticReport?status=final');
+
+subscription.addEventListener('message', (event) => {
+  const report = event.data; // the FHIR DiagnosticReport that changed
+  console.log('New final report:', report.id);
+});
+
+// Clean up when done
+subscription.close();
+```
+
+In a React application, use the `useSubscription` hook from `@medplum/react`:
+
+```typescript
+import { useSubscription } from '@medplum/react';
+import { DiagnosticReport } from '@medplum/fhirtypes';
+
+function ReportWatcher() {
+  useSubscription('DiagnosticReport?status=final', (report: DiagnosticReport) => {
+    console.log('Received report:', report.id);
+  });
+
+  return <div>Listening for final reports...</div>;
+}
+```
+
+## Triggering Bots
+
+The most common use of Subscriptions is triggering a [Bot](/bots/index). Set the channel type to `rest-hook` and the endpoint to `Bot/<BOT_ID>`:
+
+```json
+{
+  "resourceType": "Subscription",
+  "status": "active",
+  "criteria": "Patient",
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "Bot/43ac3060-ff20-49e8-9682-bf91ab3a5191",
+    "payload": "application/fhir+json"
+  }
+}
+```
+
+Medplum delivers the triggering resource directly into the Bot's `event.input`. No external HTTP endpoint is required.
+
+<Tip>
+  Use refined criteria like `Observation?code=http://loinc.org|2339-0` to limit a Bot to specific observation codes, rather than triggering on every resource write.
+</Tip>

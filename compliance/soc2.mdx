@@ -1,0 +1,118 @@
+---
+title: "SOC 2 Type II"
+description: "Medplum maintains SOC 2 Type II certification across Security, Availability, and Confidentiality trust service criteria."
+---
+
+Medplum has achieved SOC 2 Type II certification. This certification demonstrates that Medplum's security controls have been independently audited and verified to operate effectively over an extended observation period — not just at a single point in time.
+
+## What SOC 2 Type II covers
+
+SOC 2 is an auditing standard developed by the American Institute of Certified Public Accountants (AICPA). A Type II report evaluates whether a service organization's controls were designed appropriately **and** operated effectively over the audit period (typically 6–12 months).
+
+Medplum's SOC 2 Type II certification covers three Trust Service Criteria:
+
+<CardGroup cols={3}>
+  <Card title="Security" icon="shield">
+    Systems are protected against unauthorized access, both physical and logical. Covers access controls, encryption, monitoring, and incident response.
+  </Card>
+  <Card title="Availability" icon="server">
+    Systems are available for operation and use as committed. Covers uptime, disaster recovery, and performance monitoring.
+  </Card>
+  <Card title="Confidentiality" icon="lock">
+    Information designated as confidential is protected as committed. Covers data classification, encryption, and access restrictions.
+  </Card>
+</CardGroup>
+
+## Available materials
+
+| Resource | Description | Access |
+|---|---|---|
+| Security overview | Description of platform processes and controls | [Request access](mailto:hello@medplum.com) |
+| SOC 2 Type II report | Full audit report from independent auditor | [Request access](https://drive.google.com/file/d/1V_pTMq9a8WlZP1sKiMruFmuGUK1X3c3d/view?usp=sharing) |
+| Penetration test | Third-party penetration test results | [Request access](https://drive.google.com/file/d/19hZw2q-pJEhkK6n3hyIr6oOdUwabw6g3/view?usp=sharing) |
+
+<Note>
+  Access to the full SOC 2 report and penetration test results is restricted to customers and prospects under NDA. Contact [hello@medplum.com](mailto:hello@medplum.com) to request access.
+</Note>
+
+## Controls in scope
+
+The following control areas are covered by the SOC 2 audit:
+
+<AccordionGroup>
+  <Accordion title="Logical and physical access">
+    - Role-based access control enforced at the application and infrastructure layers
+    - Multi-factor authentication required for privileged access
+    - Regular access reviews to remove unnecessary permissions
+    - Physical access to data centers managed by AWS
+  </Accordion>
+  <Accordion title="Encryption and data protection">
+    - TLS 1.2+ for all data in transit
+    - AES-256 encryption for data at rest (RDS and S3)
+    - Key management through AWS KMS
+    - Secure deletion procedures for decommissioned storage
+  </Accordion>
+  <Accordion title="Change management">
+    - All code changes reviewed before deployment
+    - Automated testing in CI/CD pipelines
+    - Staged deployments (staging before production)
+    - Audit trail of infrastructure changes
+  </Accordion>
+  <Accordion title="Monitoring and incident response">
+    - Continuous monitoring of infrastructure and application metrics
+    - Defined incident response procedures with escalation paths
+    - Post-incident reviews for significant events
+    - Vulnerability scanning and patch management
+  </Accordion>
+  <Accordion title="Availability and continuity">
+    - Multi-AZ database deployments
+    - Automated database backups with tested restore procedures
+    - Defined RTO and RPO targets
+    - Capacity planning and scaling procedures
+  </Accordion>
+  <Accordion title="Vendor management">
+    - Third-party vendor security assessments
+    - Contractual security requirements for subprocessors
+    - Regular review of subprocessor access
+  </Accordion>
+</AccordionGroup>
+
+## Annual audit process
+
+Medplum undergoes a SOC 2 Type II audit annually, conducted by an independent third-party auditor. The process includes:
+
+<Steps>
+  <Step title="Scoping">
+    Define the systems, services, and control objectives included in the audit period.
+  </Step>
+  <Step title="Evidence collection">
+    Gather documentation of controls, configuration snapshots, logs, and access records throughout the audit period.
+  </Step>
+  <Step title="Auditor testing">
+    The independent auditor tests whether controls were designed appropriately and operated effectively during the observation period.
+  </Step>
+  <Step title="Report issuance">
+    The auditor issues a Type II report. Medplum makes this report available to customers under NDA.
+  </Step>
+</Steps>
+
+## Continuous monitoring
+
+Between annual audits, Medplum maintains continuous monitoring through:
+
+- Automated infrastructure compliance checks via [Vanta](https://app.vanta.com/medplum.com/trust/ybe9my9rkc6ok8yijm04h)
+- Real-time alerting on security control deviations
+- Regular vulnerability scanning
+- Quarterly access reviews
+
+You can view Medplum's current compliance posture on the [Medplum Trust Center](https://app.vanta.com/medplum.com/trust/ybe9my9rkc6ok8yijm04h).
+
+## Using Medplum for your own SOC 2
+
+If you are pursuing SOC 2 certification and using Medplum as your primary application backend, Medplum can support your audit process:
+
+- Connect to your audit prep software (Vanta, Drata, SecureFrame, Lacework) to share relevant evidence.
+- Provide documentation of Medplum's controls that fall within your shared responsibility scope.
+- Answer auditor questions about the Medplum platform.
+
+To initiate this process, contact [hello@medplum.com](mailto:hello@medplum.com).

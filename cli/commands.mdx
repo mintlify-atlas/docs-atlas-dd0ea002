@@ -1,0 +1,703 @@
+---
+title: "CLI command reference"
+description: "Complete reference for all Medplum CLI commands and options."
+keywords: ["medplum", "cli", "commands", "fhir", "bots", "bulk", "project"]
+---
+
+Complete reference for every `medplum` command. For installation and authentication setup, see the [Medplum CLI overview](/cli/index).
+
+---
+
+## Authentication
+
+### `medplum login`
+
+Opens a browser window for interactive OAuth2 login. On success, credentials are saved to `~/.medplum/credentials` and reused automatically on future commands.
+
+You can also pass `--profile` with auth flags to create a named profile and log in simultaneously:
+
+```bash
+medplum login
+```
+
+```bash
+# Log in and store credentials under a named profile
+medplum login \
+  --profile my-server \
+  --auth-type client-credentials \
+  --base-url https://api.example.com \
+  --client-id YOUR_CLIENT_ID \
+  --client-secret YOUR_CLIENT_SECRET
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `--profile <name>` | Profile to save credentials into (defaults to `default`) |
+| `--auth-type <type>` | Auth flow: `basic`, `client-credentials`, `authorization-code`, `jwt-bearer`, `jwt-assertion` |
+| `--base-url <url>` | FHIR server base URL |
+| `--client-id <id>` | OAuth2 client ID |
+| `--client-secret <secret>` | OAuth2 client secret |
+| `--token-url <url>` | Token endpoint |
+| `--authorize-url <url>` | Authorization endpoint |
+
+---
+
+### `medplum whoami`
+
+Prints the current server URL, authenticated user, and active project.
+
+```bash
+medplum whoami
+```
+
+**Example output**
+
+```
+Server:  https://api.medplum.com
+Profile: Alice Smith (Practitioner/alice-id)
+Project: Acme Health (Project/acme-id)
+```
+
+If you are not logged in, the command prints `Not logged in`.
+
+---
+
+### `medplum token`
+
+Prints the current access token to stdout. Useful for scripting or passing to other tools.
+
+```bash
+medplum token
+```
+
+**Example output**
+
+```
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+---
+
+## FHIR resource operations
+
+The CLI wraps the Medplum FHIR REST API. It handles authentication headers, base URL prefixes, and pretty-prints JSON responses automatically.
+
+URLs are interpreted relative to the FHIR base (e.g., `Patient` resolves to `https://api.medplum.com/fhir/R4/Patient`). Paths that begin with `admin/`, `auth/`, or `fhir/R4` are passed through unchanged.
+
+---
+
+### `medplum get <url>`
+
+Sends an HTTP `GET` request and pretty-prints the JSON response.
+
+```bash
+medplum get <url>
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `--as-transaction` | Convert a Bundle response to a transaction Bundle |
+
+**Examples**
+
+Read a patient by ID:
+
+```bash
+medplum get Patient/homer-simpson
+```
+
+Search for patients by name:
+
+```bash
+medplum get 'Patient?name=homer'
+```
+
+Read with a self-hosted server:
+
+```bash
+medplum get --base-url https://api.example.com Patient/123
+```
+
+Export a search result as a transaction bundle:
+
+```bash
+medplum get --as-transaction 'Observation?subject=Patient/abc'
+```
+
+---
+
+### `medplum post <url> <body>`
+
+Sends an HTTP `POST` request with a JSON body.
+
+```bash
+medplum post <url> <body>
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `--prefer-async` | Sets the `Prefer: respond-async` header |
+
+**Examples**
+
+Create a patient:
+
+```bash
+medplum post Patient '{"resourceType":"Patient","name":[{"family":"Simpson","given":["Homer"]}]}'
+```
+
+Invoke a FHIR operation:
+
+```bash
+medplum post 'Patient/$validate' '{"resourceType":"Patient","name":[{"family":"Simpson"}]}'
+```
+
+---
+
+### `medplum put <url> <body>`
+
+Sends an HTTP `PUT` request to create or replace a resource at the given URL.
+
+```bash
+medplum put <url> <body>
+```
+
+**Examples**
+
+Update a patient:
+
+```bash
+medplum put Patient/homer-simpson '{"resourceType":"Patient","id":"homer-simpson","name":[{"family":"Simpson","given":["Homer"]}]}'
+```
+
+---
+
+### `medplum patch <url> <body>`
+
+Sends an HTTP `PATCH` request using [JSON Patch](https://jsonpatch.com/).
+
+```bash
+medplum patch <url> <body>
+```
+
+**Examples**
+
+Set a patient's `active` field to `true`:
+
+```bash
+medplum patch Patient/homer-simpson '[{"op":"add","path":"/active","value":true}]'
+```
+
+---
+
+### `medplum delete <url>`
+
+Sends an HTTP `DELETE` request to remove a resource.
+
+```bash
+medplum delete <url>
+```
+
+**Examples**
+
+Delete a patient by ID:
+
+```bash
+medplum delete Patient/homer-simpson
+```
+
+---
+
+## Bot management
+
+Bots are serverless TypeScript functions triggered by FHIR Subscriptions. The CLI reads bot configuration from `medplum.config.json` in your working directory.
+
+**`medplum.config.json` format**
+
+```json
+{
+  "bots": [
+    {
+      "name": "hello-world",
+      "id": "f0465c2e-11d4-4c36-b834-8e86f7472b4b",
+      "source": "src/hello-world.ts",
+      "dist": "dist/hello-world.js"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|---|---|
+| `name` | Friendly name used in CLI commands |
+| `id` | Bot resource ID in your Medplum project |
+| `source` | Path to the TypeScript (or JavaScript) source file. Saved to `Bot.code` on `bot save`. |
+| `dist` | Path to the compiled JavaScript file. Deployed to the bot runtime on `bot deploy`. |
+
+<Note>
+  The `dist` field is optional. If omitted, `bot deploy` falls back to the `source` file.
+</Note>
+
+---
+
+### `medplum bot create <name> <projectId> <sourceFile> <distFile>`
+
+Creates a new Bot resource in your project and adds it to `medplum.config.json`.
+
+```bash
+medplum bot create <name> <projectId> <sourceFile> <distFile>
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `--runtime-version <version>` | Runtime environment: `awslambda` or `vmcontext` |
+| `--no-write-config` | Skip writing the bot entry to `medplum.config.json` |
+
+**Example**
+
+```bash
+medplum bot create hello-world f0465c2e-11d4-4c36-b834-8e86f7472b4b src/hello-world.ts dist/hello-world.js
+```
+
+---
+
+### `medplum bot save <name>`
+
+Uploads the source file contents to the `Bot.code` field in Medplum. Use this to sync local edits to the server before deploying.
+
+```bash
+medplum bot save <name>
+```
+
+**Example**
+
+```bash
+medplum bot save hello-world
+```
+
+**Example output**
+
+```
+Number of bots saved: 1
+Number of bots deployed: 0
+Number of errors: 0
+```
+
+Pass `*` or a glob pattern to save multiple bots at once:
+
+```bash
+medplum bot save '*'
+```
+
+---
+
+### `medplum bot deploy <name>`
+
+Deploys the compiled bot to the Medplum runtime. The `dist` file (or `source` if `dist` is not set) is sent to the server.
+
+```bash
+medplum bot deploy <name>
+```
+
+**Example**
+
+Compile first, then deploy:
+
+```bash
+npx tsc
+medplum bot deploy hello-world
+```
+
+**Example output**
+
+```
+Number of bots saved: 1
+Number of bots deployed: 1
+Number of errors: 0
+```
+
+---
+
+## Bulk data
+
+### `medplum bulk export`
+
+Requests a FHIR Bulk Data export from the server and downloads the resulting NDJSON files to the local filesystem. Follows the [HL7 Bulk Data export flow](https://build.fhir.org/ig/HL7/bulk-data/export.html) and polls for completion automatically.
+
+```bash
+medplum bulk export [options]
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `-e, --export-level <level>` | Export scope. Defaults to system-level. Use `Patient` for all patients or `Group/<id>` for a group. |
+| `-t, --types <types>` | Comma-separated list of resource types to include |
+| `-s, --since <date>` | Only include resources updated after this ISO 8601 timestamp |
+| `-d, --target-directory <dir>` | Directory to write NDJSON files into (defaults to current directory) |
+
+**Examples**
+
+System-level export:
+
+```bash
+medplum bulk export
+```
+
+Export only Patient and Observation resources modified after a date:
+
+```bash
+medplum bulk export --types Patient,Observation --since 2024-01-01T00:00:00Z
+```
+
+Export a specific group to a directory:
+
+```bash
+medplum bulk export --export-level Group/all --target-directory ./export
+```
+
+Export from an external server using a profile:
+
+```bash
+medplum bulk export -p bcda-sandbox --export-level Group/all
+```
+
+---
+
+### `medplum bulk import <filename>`
+
+Imports an NDJSON file (e.g., from a previous bulk export) into your Medplum project using batch transactions.
+
+```bash
+medplum bulk import <filename> [options]
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `--num-resources-per-request <n>` | Number of resources per batch request (default: `25`) |
+| `--add-extensions-for-missing-values` | Add FHIR extensions for fields missing required values (useful for `ExplanationOfBenefit`) |
+| `-d, --target-directory <dir>` | Directory containing the file to import |
+
+**Examples**
+
+Import a file from the current directory:
+
+```bash
+medplum bulk import Patient_export.ndjson
+```
+
+Import with a larger batch size from a specific directory:
+
+```bash
+medplum bulk import Patient_export.ndjson --num-resources-per-request 100 --target-directory ./export
+```
+
+---
+
+## Project
+
+### `medplum project list`
+
+Lists all projects your account has access to, showing the display name and project reference for each.
+
+```bash
+medplum project list
+```
+
+**Example output**
+
+```
+Acme Health (Project/f0465c2e-11d4-4c36-b834-8e86f7472b4b)
+
+Demo Project (Project/a1b2c3d4-5678-90ab-cdef-1234567890ab)
+```
+
+---
+
+### `medplum project current`
+
+Prints the display name and reference of the currently active project.
+
+```bash
+medplum project current
+```
+
+**Example output**
+
+```
+Acme Health (Project/f0465c2e-11d4-4c36-b834-8e86f7472b4b)
+```
+
+---
+
+### `medplum project switch <projectId>`
+
+Switches the active project to the one matching the given project ID. The project must already be in your local login sessions (i.e., you must have previously logged in to that project).
+
+```bash
+medplum project switch <projectId>
+```
+
+**Example**
+
+```bash
+medplum project switch f0465c2e-11d4-4c36-b834-8e86f7472b4b
+```
+
+**Example output**
+
+```
+Switched to project f0465c2e-11d4-4c36-b834-8e86f7472b4b
+```
+
+---
+
+### `medplum project invite <firstName> <lastName> <email>`
+
+Invites a user to the currently active project.
+
+```bash
+medplum project invite <firstName> <lastName> <email>
+```
+
+**Options**
+
+| Flag | Description |
+|---|---|
+| `--send-email` | Send an invitation email to the user |
+| `--admin` | Grant the invited user admin rights |
+| `-r, --role <role>` | Role for the new user: `Practitioner` (default), `Patient`, or `RelatedPerson` |
+
+**Example**
+
+```bash
+medplum project invite Jane Doe jane.doe@example.com --role Practitioner --send-email
+```
+
+---
+
+## Profiles
+
+Profiles store named sets of connection settings for different FHIR servers. Use them to switch between Medplum environments or connect to external servers without re-entering credentials on every command.
+
+Profiles are saved as JSON files in `~/.medplum/<profileName>.json`.
+
+---
+
+### `medplum profile set <profileName>`
+
+Creates or replaces a named profile with the given connection settings.
+
+```bash
+medplum profile set <profileName> [flags]
+```
+
+**Accepted auth types**
+
+| Value | Description |
+|---|---|
+| `basic` | HTTP Basic authentication |
+| `client-credentials` | OAuth2 client credentials flow |
+| `authorization-code` | OAuth2 authorization code flow |
+| `jwt-bearer` | JWT bearer token flow |
+| `jwt-assertion` | JWT private key assertion |
+| `token-exchange` | Token exchange |
+
+**Example: client credentials**
+
+```bash
+medplum profile set my-server \
+  --auth-type client-credentials \
+  --base-url https://api.example.com \
+  --fhir-url-path fhir/R4 \
+  --token-url oauth2/token \
+  --client-id MY_CLIENT_ID \
+  --client-secret MY_CLIENT_SECRET
+```
+
+**Example: JWT assertion**
+
+```bash
+medplum profile set epic-sandbox \
+  --auth-type jwt-assertion \
+  --base-url https://fhir.epic.com/interconnect-fhir-oauth \
+  --fhir-url-path api/FHIR/R4 \
+  --token-url oauth2/token \
+  --client-id MY_CLIENT_ID \
+  --audience oauth2/token \
+  --subject my-app-client \
+  --private-key-path ./private.pem
+```
+
+---
+
+### `medplum profile list`
+
+Lists all saved profiles.
+
+```bash
+medplum profile list
+```
+
+---
+
+### `medplum profile describe <profileName>`
+
+Prints the stored settings for a profile.
+
+```bash
+medplum profile describe <profileName>
+```
+
+**Example**
+
+```bash
+medplum profile describe my-server
+```
+
+---
+
+### `medplum profile remove <profileName>`
+
+Deletes a saved profile.
+
+```bash
+medplum profile remove <profileName>
+```
+
+**Example**
+
+```bash
+medplum profile remove my-server
+```
+
+---
+
+## Agent management
+
+Interact with Medplum Agent instances remotely — check status, ping devices, push messages, and reload configuration.
+
+### `medplum agent status [agentIds...]`
+
+Get the status of one or more Agent resources. Calls the `Agent/$bulk-status` FHIR operation.
+
+```bash
+# Status of a specific agent
+medplum agent status <agentId>
+
+# Status of all agents matching a search
+medplum agent status --criteria 'Agent?status=active'
+
+# Output as JSON instead of table
+medplum agent status <agentId> --output json
+```
+
+| Option | Description |
+|---|---|
+| `[agentIds...]` | One or more Agent resource IDs |
+| `--criteria <criteria>` | FHIR search criteria to resolve agents (mutually exclusive with IDs) |
+| `--output <format>` | Output format: `table` (default) or `json` |
+
+---
+
+### `medplum agent ping <ipOrDomain> [agentId]`
+
+Ping a host from the perspective of a Medplum Agent on your local network.
+
+```bash
+medplum agent ping 192.168.1.10 <agentId>
+medplum agent ping labdevice.internal --criteria 'Agent?name=LabAgent' --count 5
+```
+
+| Option | Description |
+|---|---|
+| `<ipOrDomain>` | IPv4 address or hostname to ping |
+| `[agentId]` | Agent to send the ping from |
+| `--criteria <criteria>` | FHIR search criteria to resolve the agent |
+| `--count <count>` | Number of pings to send (default: `1`) |
+
+---
+
+### `medplum agent push <deviceId> <message> [agentId]`
+
+Push a message to a device via a Medplum Agent. Useful for sending HL7 orders to lab instruments.
+
+```bash
+medplum agent push <deviceId> "MSH|^~\\&|..." <agentId>
+medplum agent push <deviceId> "MSH|^~\\&|..." --criteria 'Agent?name=LabAgent' --content-type x-application/hl7-v2+er7
+```
+
+| Option | Description |
+|---|---|
+| `<deviceId>` | FHIR Device resource ID of the target device |
+| `<message>` | Message body to send |
+| `[agentId]` | Agent to route the message through |
+| `--content-type <type>` | Content type of the message (default: `x-application/hl7-v2+er7`) |
+| `--no-wait` | Do not wait for a response from the device |
+| `--criteria <criteria>` | FHIR search criteria to resolve the agent |
+
+---
+
+### `medplum agent reload-config [agentIds...]`
+
+Push an updated configuration to a running Agent without restarting the service.
+
+```bash
+medplum agent reload-config <agentId>
+```
+
+---
+
+## HL7 utilities
+
+### `medplum hl7 send <host> <port> [body]`
+
+Send an HL7 v2 message via MLLP to a target host and port. Useful for testing HL7 interfaces.
+
+```bash
+# Send a generated example message
+medplum hl7 send localhost 56000 --generate-example
+
+# Send a message from a file
+medplum hl7 send 192.168.1.100 2575 --file ./message.hl7
+
+# Send a message inline
+medplum hl7 send localhost 56000 "MSH|^~\\&|..."
+```
+
+| Option | Description |
+|---|---|
+| `<host>` | Destination hostname or IP address |
+| `<port>` | Destination MLLP port number |
+| `[body]` | HL7 message body (optional if using `--generate-example` or `--file`) |
+| `--generate-example` | Generate and send a sample HL7 ADT message |
+| `--file <file>` | Read the HL7 message from a file |
+| `--encoding <encoding>` | Character encoding to use |
+
+---
+
+## Using profiles with other commands
+
+Pass `-p <profileName>` to any command to use that profile's connection settings:
+
+```bash
+# Search on an external server
+medplum get -p my-server 'Patient?identifier=12345'
+
+# Create a resource on an external server
+medplum post -p my-server Encounter '{"resourceType":"Encounter","status":"finished",...}'
+
+# Bulk export from an external server
+medplum bulk export -p my-server --export-level Group/all --target-directory ./export
+```

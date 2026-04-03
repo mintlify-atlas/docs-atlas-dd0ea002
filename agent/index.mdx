@@ -1,0 +1,287 @@
+---
+title: "Medplum Agent"
+description: "Bridge on-premise medical devices and legacy systems to Medplum's cloud platform using HL7/MLLP, ASTM, and DICOM protocols."
+---
+
+The Medplum Agent is an application that runs inside your firewall and connects to devices over low-level protocols such as HL7/MLLP, ASTM, and DICOM. These network protocols are commonly unencrypted and cannot be sent over the open internet in a compliant manner. The Agent bridges them to Medplum's cloud using secure HTTPS WebSocket channels.
+
+## Use cases
+
+- **Lab instruments** — receive ORU result messages from analyzers and LIS systems over MLLP.
+- **ADT feeds** — consume admission, discharge, and transfer events from hospital EHRs.
+- **PACS / DICOM** — receive and store imaging study metadata via C-STORE and C-ECHO.
+- **Serial devices** — collect data from instruments using the ASTM protocol.
+- **Bi-directional interfaces** — send orders (ORM) to external systems and receive results (ORU) back.
+
+## Supported protocols
+
+| Protocol | Description | Status |
+|---|---|---|
+| HL7 v2.x (MLLP) | Widely used low-level message protocol for healthcare data exchange | Generally available |
+| DICOM | C-STORE and C-ECHO operations for medical imaging metadata | Generally available |
+| ASTM | Transfer data between clinical instruments and computer systems | Alpha |
+
+## How it works
+
+The Agent runs on a host inside your local network. It:
+
+1. Listens on a configured port for inbound connections from devices (pull model).
+2. Forwards received messages to Medplum cloud over an encrypted HTTPS WebSocket tunnel.
+3. Medplum routes the message to the configured Bot for transformation and storage.
+4. The Bot returns an ACK (for HL7) or other response back through the tunnel to the originating device.
+
+The Agent can also push messages outbound to devices via the `Agent/$push` FHIR operation (push model).
+
+<Note>
+  HL7 feeds can be extremely high volume. Before going live with a high-volume feed, set the Bot `AuditEventDestination` to `log` to avoid creating large numbers of `AuditEvent` resources.
+</Note>
+
+## Requirements
+
+- **OS**: Windows (installer), Linux (standalone binary), or Docker.
+- **Network**: Outbound HTTPS access to your Medplum server (`https://api.medplum.com` or self-hosted URL).
+- **Medplum resources**: One `Endpoint`, one `Bot`, one `Agent`, and one `ClientApplication` configured in the Medplum App.
+
+## Installation
+
+<Steps>
+  <Step title="Configure resources in the Medplum App">
+
+    You need four resources before installing the agent on the host.
+
+    **1. Create an Endpoint**
+
+    The `Endpoint` describes the protocol and address the agent listens on. For HL7 v2 over MLLP:
+
+    ```json
+    {
+      "resourceType": "Endpoint",
+      "status": "active",
+      "connectionType": {
+        "system": "http://terminology.hl7.org/CodeSystem/endpoint-connection-type",
+        "code": "hl7v2-mllp",
+        "display": "HL7 v2 MLLP"
+      },
+      "name": "ADT Endpoint",
+      "payloadType": [
+        {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/endpoint-payload-type",
+              "code": "any",
+              "display": "Any"
+            }
+          ]
+        }
+      ],
+      "address": "mllp://0.0.0.0:56000"
+    }
+    ```
+
+    **2. Create a Bot**
+
+    The Bot receives HL7 messages, applies transformations, and returns an ACK. A minimal handler:
+
+    ```typescript
+    import { BotEvent, Hl7Message, MedplumClient } from '@medplum/core';
+
+    export async function handler(medplum: MedplumClient, event: BotEvent<Hl7Message>): Promise<Hl7Message> {
+      // Process the message here, then return an ACK
+      return event.input.buildAck();
+    }
+    ```
+
+    **3. Create an Agent resource**
+
+    The `Agent` resource links the `Endpoint` and `Bot` together:
+
+    ```json
+    {
+      "resourceType": "Agent",
+      "name": "Hospital Admissions Agent",
+      "status": "active",
+      "channel": [
+        {
+          "name": "ADT Channel",
+          "endpoint": {
+            "reference": "Endpoint/<endpoint-id>"
+          },
+          "targetReference": {
+            "reference": "Bot/<bot-id>"
+          }
+        }
+      ]
+    }
+    ```
+
+    **4. Create a ClientApplication**
+
+    Create a dedicated `ClientApplication` for the agent. Note the `clientId`, `clientSecret`, and your agent's UUID — you will need these during host installation.
+
+  </Step>
+  <Step title="Install the agent on the host">
+
+    <Tabs>
+      <Tab title="Windows">
+        1. Download the Windows installer from the [Medplum Releases](https://github.com/medplum/medplum/releases) page.
+        2. Double-click the installer and follow the prompts.
+        3. Enter the four configuration values when prompted: `baseUrl`, `clientId`, `clientSecret`, `agentId`.
+        4. The agent installs and runs as a Windows Service named **Medplum Agent**.
+        5. Logs are written to `C:\Program Files\Medplum Agent\` by default.
+      </Tab>
+      <Tab title="Linux">
+        1. Download the latest Linux binary from the [Medplum Releases](https://github.com/medplum/medplum/releases/latest) page.
+        2. Make the binary executable:
+
+        ```bash
+        chmod +x medplum-agent-linux
+        ```
+
+        3. Run the agent:
+
+        ```bash
+        ./medplum-agent-linux <baseUrl> <clientId> <clientSecret> <agentId>
+        ```
+      </Tab>
+      <Tab title="Docker">
+        ```bash
+        docker run \
+          -e MEDPLUM_BASE_URL="https://api.medplum.com" \
+          -e MEDPLUM_CLIENT_ID="<clientId>" \
+          -e MEDPLUM_CLIENT_SECRET="<clientSecret>" \
+          -e MEDPLUM_AGENT_ID="<agentId>" \
+          medplum/medplum-agent:latest
+        ```
+      </Tab>
+      <Tab title="From source">
+        ```bash
+        # Clone the repo and install dependencies
+        git clone https://github.com/medplum/medplum.git
+        cd medplum
+        npm ci
+        cd packages/agent
+        npm run agent <baseUrl> <clientId> <clientSecret> <agentId>
+        ```
+      </Tab>
+    </Tabs>
+
+  </Step>
+  <Step title="Test your setup">
+
+    Send a test HL7 message using the Medplum CLI:
+
+    ```bash
+    # Install CLI if needed
+    npm install --global @medplum/cli
+
+    # Send a generated test message
+    medplum hl7 send localhost 56000 --generate-example
+
+    # Or send a specific HL7 file
+    medplum hl7 send localhost 56000 --file /path/to/message.hl7
+    ```
+
+    After sending, verify an `AuditEvent` was created in Medplum by navigating to your Bot in the [Medplum App](https://app.medplum.com/Bot) and checking the **Events** tab.
+
+    For high-volume testing, use [Sim Hospital](https://github.com/google/simhospital):
+
+    ```bash
+    docker run --rm -it -p 8000:8000 \
+      eu.gcr.io/simhospital-images/simhospital:latest \
+      health/simulator -output mllp \
+      -mllp_destination <ip_address>:56000 \
+      -pathways_per_hour 720
+    ```
+
+  </Step>
+</Steps>
+
+## Configuration parameters
+
+The agent requires four parameters at startup:
+
+| Parameter | Description | Required |
+|---|---|---|
+| `baseUrl` | Medplum server base URL (e.g., `https://api.medplum.com`) | Yes |
+| `clientId` | OAuth client ID from your `ClientApplication` | Yes |
+| `clientSecret` | OAuth client secret from your `ClientApplication` | Yes |
+| `agentId` | UUID of your `Agent` resource | Yes |
+
+### Configuration methods
+
+<Tabs>
+  <Tab title="Command line">
+    ```bash
+    npm run agent <baseUrl> <clientId> <clientSecret> <agentId> [logLevel]
+    ```
+  </Tab>
+  <Tab title="Properties file">
+    On Windows: `C:\Program Files\Medplum Agent\agent.properties`
+
+    On Linux/macOS: same directory as the agent executable.
+
+    ```properties
+    baseUrl=https://api.medplum.com
+    clientId=my-client-id
+    clientSecret=my-client-secret
+    agentId=123e4567-e89b-12d3-a456-426614174000
+    logLevel=INFO
+    ```
+  </Tab>
+  <Tab title="Environment variables">
+    ```bash
+    MEDPLUM_BASE_URL=https://api.medplum.com
+    MEDPLUM_CLIENT_ID=my-client-id
+    MEDPLUM_CLIENT_SECRET=my-client-secret
+    MEDPLUM_AGENT_ID=123e4567-e89b-12d3-a456-426614174000
+    MEDPLUM_LOG_LEVEL=INFO
+    ```
+  </Tab>
+</Tabs>
+
+### Optional configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `logLevel` | `INFO` | Global log verbosity: `NONE`, `ERROR`, `WARN`, `INFO`, `DEBUG` |
+| `logger.main.logDir` | Agent directory | Directory for main (non-PHI) log files |
+| `logger.channel.logDir` | Agent directory | Directory for channel (may contain PHI) log files |
+| `logger.main.maxFileSizeMb` | `10` | Max log file size before rotation |
+| `logger.channel.filesToKeep` | `10` | Number of rotated log files to retain |
+
+<Warning>
+  Channel logs may contain Protected Health Information (PHI). Store them in a secure location with appropriate access controls and separate them from main logs.
+</Warning>
+
+## Push vs pull models
+
+**Pull (inbound)** — the device connects to the agent. The agent listens on the configured MLLP port and accepts incoming connections from devices on the local network. This is the default model for most HL7 interfaces.
+
+**Push (outbound)** — the agent sends messages to a device. Use the `Agent/$push` FHIR operation from a Bot or external process to send an HL7 message from Medplum to a device on the local network:
+
+```typescript
+await medplum.executeOperation(agentRef, '$push', {
+  destination: 'mllp://192.168.1.100:2575',
+  body: hl7MessageString,
+  contentType: 'x-application/hl7-v2+er7',
+});
+```
+
+## Monitoring agent status
+
+All Bot-agent interactions produce `AuditEvent` resources. To view them:
+
+- Navigate to your [Agent](https://app.medplum.com/Agent) or [Bot](https://app.medplum.com/Bot) in the Medplum App.
+- Click the **Events** tab to see the `AuditEvent` log.
+
+You can also call `Agent/$status` to check whether the agent is connected, and `Agent/$reload-config` to push updated configuration without restarting the service.
+
+<Tip>
+  Use `Agent/$fetch-logs` (requires server and agent ≥ 4.3.14) to remotely retrieve agent logs for troubleshooting without requiring direct host access.
+</Tip>
+
+## Related
+
+- [HL7 v2 interfacing](/integration/hl7-interfacing)
+- [Medplum Bots](/bots/index)
+- [Medplum Agent demo video](https://youtu.be/MmE3Dn939B4)

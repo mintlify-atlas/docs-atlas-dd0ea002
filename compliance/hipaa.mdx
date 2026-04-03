@@ -1,0 +1,113 @@
+---
+title: "HIPAA Compliance"
+description: "How Medplum supports your HIPAA obligations as a healthcare platform and Business Associate."
+---
+
+Medplum is HIPAA compliant. The platform is designed to support organizations that create, receive, maintain, or transmit protected health information (PHI), whether you are a covered entity or a business associate.
+
+## Medplum as a Business Associate
+
+When you use the Medplum hosted platform to store or process PHI, Medplum acts as a Business Associate under HIPAA. Medplum will execute a Business Associate Agreement (BAA) with your organization before you begin storing PHI.
+
+To request a BAA, contact [hello@medplum.com](mailto:hello@medplum.com).
+
+<Note>
+  The BAA applies to the Medplum hosted environment. If you are self-hosting Medplum, you are the operator of the infrastructure and are responsible for your own technical safeguards. Medplum can provide guidance materials to support your self-hosted compliance program.
+</Note>
+
+## Available compliance materials
+
+| Resource | Description | Access |
+|---|---|---|
+| BAA | Business Associate Agreement template | [Request access](https://docs.google.com/document/d/1hXI0Uf2YxhT1_m-RFZpJFvbt3fl1Ac_2/edit?usp=sharing&ouid=115651930576812038339&rtpof=true&sd=true) |
+| MSA | Master Services Agreement template | [Request access](https://docs.google.com/document/d/1w0atWE19fVH8Yszr-nROhZJVj7gCt-BT/edit?usp=sharing&ouid=115651930576812038339&rtpof=true&sd=true) |
+| Security overview | Description of platform processes and tools | [Request access](mailto:hello@medplum.com) |
+| Privacy policy | PHI handling and privacy practices | [medplum.com/privacy](https://www.medplum.com/privacy) |
+
+## Technical safeguards
+
+HIPAA requires covered entities and business associates to implement technical safeguards to protect ePHI. The following describes how Medplum supports each requirement.
+
+<AccordionGroup>
+  <Accordion title="Access controls">
+    Medplum implements role-based access control through FHIR `ProjectMembership` and `AccessPolicy` resources. You can define fine-grained access rules that restrict which users and client applications can read or write specific resource types, compartments, or individual records.
+
+    - Every API request is authenticated before any data is accessed.
+    - Client applications authenticate via OAuth 2.0 with short-lived access tokens.
+    - User sessions are time-limited and can be revoked.
+  </Accordion>
+  <Accordion title="Audit controls">
+    Medplum generates FHIR `AuditEvent` resources for:
+
+    - All authentication events (login, token refresh, logout)
+    - All RESTful FHIR operations (read, search, create, update, delete)
+
+    Audit events can be saved to the database, streamed to your log infrastructure, or written to a dedicated CloudWatch Log Group for long-term retention. Configure these options via `saveAuditEvents`, `logAuditEvents`, and `auditEventLogGroup` in your [server configuration](/self-hosting/server-config).
+  </Accordion>
+  <Accordion title="Integrity controls">
+    - All data is stored in PostgreSQL with transactional consistency guarantees.
+    - FHIR resource versioning provides a complete history of every change to every resource.
+    - Binary files are stored in S3 with server-side encryption and integrity verification.
+  </Accordion>
+  <Accordion title="Transmission security">
+    All communication between clients and the Medplum API uses TLS 1.2 or higher. Unencrypted HTTP is not permitted in the hosted environment.
+
+    Binary file downloads use time-limited CloudFront presigned URLs, preventing unauthorized access to files even if a URL is inadvertently shared.
+  </Accordion>
+  <Accordion title="Automatic logoff">
+    Access tokens issued by the Medplum OAuth server are short-lived. Refresh tokens can be configured with expiration policies. You can also revoke all active sessions for a user via the admin API.
+  </Accordion>
+  <Accordion title="Authentication">
+    Medplum supports:
+
+    - Email and password authentication with bcrypt password hashing
+    - Multi-factor authentication (TOTP)
+    - Google OAuth
+    - External identity provider integration via direct external authentication
+
+    Enforce MFA for your organization through project-level settings.
+  </Accordion>
+</AccordionGroup>
+
+## Administrative safeguards
+
+Medplum supports your administrative safeguard obligations in the following ways:
+
+- **Workforce training documentation**: The Medplum security overview describes platform controls that you can reference in your workforce training materials.
+- **Access management procedures**: The FHIR `ProjectMembership` model provides a structured way to onboard and offboard users with appropriate access levels.
+- **Incident response**: Medplum maintains an incident response procedure and will notify affected customers in the event of a breach involving the hosted platform, as required by the HIPAA Breach Notification Rule.
+- **Business continuity**: The hosted platform uses Multi-AZ RDS deployments and automated backups to support availability requirements.
+
+## Encryption
+
+| Layer | Details |
+|---|---|
+| Data in transit | TLS 1.2+ enforced for all API traffic |
+| Data at rest (hosted) | AES-256 on RDS (PostgreSQL) and S3 |
+| Self-hosted S3 | Optional SSE-C with a customer-managed AES-256 key |
+
+## Hosted vs. self-hosted
+
+| Responsibility | Medplum hosted | Self-hosted |
+|---|---|---|
+| Physical security | Medplum (via AWS) | Your cloud provider |
+| Network controls | Medplum | You |
+| Encryption at rest | Medplum | You |
+| Patch management | Medplum | You |
+| BAA available | Yes | Not applicable — you are the operator |
+| Access control configuration | You | You |
+| Audit log review | You | You |
+
+## Requesting a BAA
+
+<Steps>
+  <Step title="Contact Medplum">
+    Email [hello@medplum.com](mailto:hello@medplum.com) to initiate the BAA process. Include your organization name and a brief description of your use case.
+  </Step>
+  <Step title="Review the template">
+    Medplum will provide a BAA template. You can also review the template in advance via the link in the materials table above.
+  </Step>
+  <Step title="Execute the agreement">
+    Once both parties have signed the BAA, you may begin storing PHI in the Medplum hosted environment.
+  </Step>
+</Steps>

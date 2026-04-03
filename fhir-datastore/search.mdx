@@ -1,0 +1,148 @@
+---
+title: "Searching FHIR Resources"
+description: "Search for FHIR resources using standard FHIR search parameters, modifiers, and chained search."
+---
+
+Medplum implements the [FHIR search specification](https://www.hl7.org/fhir/R4/search.html) in full. Each resource type exposes a defined set of search parameters — arbitrary field queries are not supported to maintain index performance.
+
+## Basic search with `searchResources`
+
+`searchResources` unwraps the FHIR Bundle and returns a typed array of resources.
+
+```typescript
+import { MedplumClient } from '@medplum/core';
+
+const medplum = new MedplumClient();
+
+// Search by a single parameter
+const patients = await medplum.searchResources('Patient', 'name=Smith');
+
+// AND search — both conditions must match
+const results = await medplum.searchResources('Patient', 'name=Smith&address-city=Boston');
+
+// OR search — comma-separated values within a single parameter
+const active = await medplum.searchResources('Task', 'status=requested,in-progress');
+```
+
+The returned array includes a `bundle` property exposing raw bundle metadata such as `total`:
+
+```typescript
+console.log(results.bundle.total); // total number of matching resources
+```
+
+## Searching by reference
+
+Use `ResourceType/id` syntax to filter by a referenced resource. The `getReferenceString` utility constructs this for you.
+
+```typescript
+import { getReferenceString } from '@medplum/core';
+
+const observations = await medplum.searchResources(
+  'Observation',
+  `subject=${getReferenceString(patient)}` // e.g. "Patient/abc-123"
+);
+```
+
+## Token parameters
+
+Token parameters (codes, identifiers) perform **exact, case-sensitive** matches. Scope to a system with `system|value` syntax.
+
+```typescript
+// Any identifier equal to "12345"
+await medplum.searchResources('Patient', 'identifier=12345');
+
+// Only US Social Security Numbers
+await medplum.searchResources('Patient', 'identifier=http://hl7.org/fhir/sid/us-ssn|12345');
+
+// All patients that have any SSN on file
+await medplum.searchResources('Patient', 'identifier=http://hl7.org/fhir/sid/us-ssn|');
+```
+
+## Search modifiers
+
+Append `:<modifier>` to any search parameter name to change its matching behavior.
+
+| Modifier    | Applies to | Behavior |
+|-------------|-----------|----------|
+| `:exact`    | `string`  | Case-sensitive exact match |
+| `:contains` | `string`  | Substring match anywhere in the value |
+| `:missing`  | any       | `true` returns resources where the field is absent; `false` returns resources where it is present |
+| `:not`      | `token`   | Excludes resources matching the value |
+
+```typescript
+// :contains — name includes "stein" anywhere
+await medplum.searchResources('Patient', 'name:contains=stein');
+
+// :exact — case-sensitive, no prefix matching
+await medplum.searchResources('Patient', 'name:exact=Smith');
+
+// :missing — patients without a recorded birthDate
+await medplum.searchResources('Patient', 'birthdate:missing=true');
+
+// :not — tasks that are not completed
+await medplum.searchResources('Task', 'status:not=completed');
+```
+
+## Comparison prefixes
+
+Prefix numeric, date, and quantity values to express range conditions.
+
+| Prefix | Meaning |
+|--------|---------|
+| `eq` | equal (default) |
+| `ne` | not equal |
+| `gt` | greater than |
+| `lt` | less than |
+| `ge` | greater than or equal |
+| `le` | less than or equal |
+
+```typescript
+// Observations with a probability greater than 0.8
+await medplum.searchResources('RiskAssessment', 'probability=gt0.8');
+
+// Inclusive range using AND (pass array of arrays for repeated params)
+await medplum.searchResources('RiskAssessment', [
+  ['probability', 'ge0.5'],
+  ['probability', 'le0.9'],
+]);
+```
+
+## Sorting
+
+Use `_sort` to order results. Prepend `-` for descending order.
+
+```typescript
+// Ascending by probability, then date
+await medplum.searchResources('RiskAssessment', '_sort=probability,date');
+
+// Most recently updated first
+await medplum.searchResources('RiskAssessment', '_sort=-_lastUpdated');
+```
+
+## Pagination
+
+Control page size with `_count` and offset with `_offset`. Request total result count with `_total=accurate`.
+
+```typescript
+// Page 1: first 20 patients
+const page1 = await medplum.searchResources('Patient', '_count=20&_offset=0&_total=accurate');
+
+// Page 2
+const page2 = await medplum.searchResources('Patient', '_count=20&_offset=20');
+```
+
+## Including linked resources
+
+`_include` returns resources referenced by the search results. `_revinclude` returns resources that reference the search results.
+
+```typescript
+// Return DiagnosticReports and the Patients they reference
+await medplum.search('DiagnosticReport', '_include=DiagnosticReport:subject');
+
+// Return Patients and all Observations that reference them
+await medplum.search('Patient', '_revinclude=Observation:subject');
+```
+
+<Tip>
+  For queries that need to traverse multiple levels of linked resources in one request, consider the [GraphQL API](/graphql/index) instead.
+</Tip>

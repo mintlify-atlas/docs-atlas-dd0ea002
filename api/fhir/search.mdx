@@ -1,0 +1,258 @@
+---
+title: "FHIR Search API"
+description: "Search FHIR resources using standard search parameters, modifiers, chained search, and includes."
+---
+
+FHIR search lets you filter, sort, and paginate resources using URL query parameters. Search results are returned as a `Bundle` of type `searchset`.
+
+**Search endpoint:**
+
+```
+GET /fhir/R4/{resourceType}?{parameters}
+```
+
+## Basic parameter syntax
+
+Parameters are URL query parameters in the form `name=value`. Multiple parameters are joined with `&` (AND logic).
+
+```bash
+# Patients with family name "Smith" born in 1990
+curl "https://api.medplum.com/fhir/R4/Patient?family=Smith&birthdate=1990" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Common search parameters by resource type
+
+### Patient
+
+| Parameter | Type | Example |
+|-----------|------|---------|
+| `_id` | token | `_id=abc123` |
+| `identifier` | token | `identifier=http://example.org/mrn\|12345` |
+| `name` | string | `name=Jane` |
+| `family` | string | `family=Doe` |
+| `given` | string | `given=Jane` |
+| `birthdate` | date | `birthdate=1990-06-15` |
+| `gender` | token | `gender=female` |
+| `email` | token | `email=jane@example.com` |
+| `phone` | token | `phone=555-0100` |
+| `address` | string | `address=Boston` |
+| `address-city` | string | `address-city=Boston` |
+| `address-state` | string | `address-state=MA` |
+
+### Observation
+
+| Parameter | Type | Example |
+|-----------|------|---------|
+| `subject` | reference | `subject=Patient/abc123` |
+| `patient` | reference | `patient=abc123` |
+| `code` | token | `code=http://loinc.org\|29463-7` |
+| `date` | date | `date=ge2024-01-01` |
+| `status` | token | `status=final` |
+| `category` | token | `category=vital-signs` |
+| `value-quantity` | quantity | `value-quantity=gt100\|http://unitsofmeasure.org\|mg/dL` |
+
+### Encounter
+
+| Parameter | Type | Example |
+|-----------|------|---------|
+| `patient` | reference | `patient=abc123` |
+| `status` | token | `status=in-progress` |
+| `class` | token | `class=AMB` |
+| `date` | date | `date=2024-01` |
+| `type` | token | `type=http://snomed.info/sct\|11429006` |
+
+### Condition
+
+| Parameter | Type | Example |
+|-----------|------|---------|
+| `patient` | reference | `patient=abc123` |
+| `code` | token | `code=http://snomed.info/sct\|44054006` |
+| `clinical-status` | token | `clinical-status=active` |
+| `onset-date` | date | `onset-date=ge2020-01-01` |
+
+## Parameter modifiers
+
+Modifiers change how a parameter value is matched. Append them to the parameter name with a colon.
+
+| Modifier | Applies to | Behavior | Example |
+|----------|-----------|----------|---------|
+| `:exact` | string | Exact case-sensitive match | `name:exact=Jane` |
+| `:contains` | string | Substring match | `name:contains=an` |
+| `:missing` | any | Resources where parameter is absent (`true`) or present (`false`) | `birthdate:missing=true` |
+| `:not` | token | Exclude resources matching the value | `status:not=entered-in-error` |
+| `:above` | token/uri | Includes the concept and its ancestors | `code:above=http://snomed.info/sct\|44054006` |
+| `:below` | token/uri | Includes the concept and its descendants | `code:below=http://snomed.info/sct\|44054006` |
+| `:in` | token | Value is in a referenced ValueSet | `code:in=http://example.org/ValueSet/my-vs` |
+| `:of-type` | token | Token with specific type code | `identifier:of-type=http://terminology.hl7.org/CodeSystem/v2-0203\|MR` |
+| `:text` | token | Display text of a coded value | `code:text=diabetes` |
+
+## Date prefixes
+
+Date and number parameters support comparison prefixes:
+
+| Prefix | Meaning | Example |
+|--------|---------|---------|
+| `eq` (default) | Equal | `date=eq2024-01-15` |
+| `ne` | Not equal | `date=ne2024-01-15` |
+| `lt` | Less than | `date=lt2024-01-15` |
+| `gt` | Greater than | `date=gt2024-01-15` |
+| `le` | Less than or equal | `date=le2024-01-15` |
+| `ge` | Greater than or equal | `date=ge2024-01-01` |
+| `sa` | Starts after | `date=sa2024-01-01` |
+| `eb` | Ends before | `date=eb2024-12-31` |
+
+```bash
+# Observations recorded in 2024
+curl "https://api.medplum.com/fhir/R4/Observation?patient=abc123&date=ge2024-01-01&date=le2024-12-31" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Logical operators
+
+- **AND**: separate parameters with `&`
+- **OR**: separate values for the same parameter with a comma
+
+```bash
+# Patients named Jane OR John (OR within a parameter)
+curl "https://api.medplum.com/fhir/R4/Patient?given=Jane,John" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Patients named Jane AND born in 1990 (AND across parameters)
+curl "https://api.medplum.com/fhir/R4/Patient?given=Jane&birthdate=1990" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Sorting
+
+Use `_sort` to order results. Prefix with `-` for descending order.
+
+```bash
+# Most recent observations first
+curl "https://api.medplum.com/fhir/R4/Observation?patient=abc123&_sort=-date" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Patients sorted by family name ascending, then given name ascending
+curl "https://api.medplum.com/fhir/R4/Patient?_sort=family,given" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Pagination
+
+Use `_count` to set page size (default: 20, max: 1000) and `_offset` to skip results.
+
+```bash
+# First 10 results
+curl "https://api.medplum.com/fhir/R4/Patient?_count=10&_offset=0" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Next page
+curl "https://api.medplum.com/fhir/R4/Patient?_count=10&_offset=10" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The response Bundle includes `link` entries for `self`, `next`, and `previous`:
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 247,
+  "link": [
+    { "relation": "self", "url": "https://api.medplum.com/fhir/R4/Patient?_count=10&_offset=0" },
+    { "relation": "next", "url": "https://api.medplum.com/fhir/R4/Patient?_count=10&_offset=10" }
+  ],
+  "entry": [...]
+}
+```
+
+## Includes and reverse includes
+
+**`_include`** fetches referenced resources alongside the primary results.
+
+```bash
+# Fetch Observations and include the referenced Patient
+curl "https://api.medplum.com/fhir/R4/Observation?patient=abc123&_include=Observation:patient" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**`_revinclude`** fetches resources that reference the primary results.
+
+```bash
+# Fetch a Patient and include all their Observations
+curl "https://api.medplum.com/fhir/R4/Patient?_id=abc123&_revinclude=Observation:patient" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Included resources appear in Bundle entries with `search.mode` set to `include`.
+
+## Chained search
+
+Chain search parameters across resource references using `.` notation. This finds resources based on the properties of a referenced resource.
+
+```bash
+# Observations for patients with the family name Smith
+curl "https://api.medplum.com/fhir/R4/Observation?patient.family=Smith" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Encounters where the practitioner is named Williams
+curl "https://api.medplum.com/fhir/R4/Encounter?participant:Practitioner.family=Williams" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Full-text search
+
+Use `_text` to perform a full-text search across all string fields in a resource:
+
+```bash
+curl "https://api.medplum.com/fhir/R4/Patient?_text=Jane+Doe+Boston" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Return specific fields
+
+Use `_elements` to request only specific top-level fields, reducing response size:
+
+```bash
+curl "https://api.medplum.com/fhir/R4/Patient?_elements=id,name,birthDate" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Summary mode
+
+`_summary=true` returns a minimal representation of each resource:
+
+```bash
+curl "https://api.medplum.com/fhir/R4/Patient?_summary=true" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Response Bundle format
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 3,
+  "link": [
+    { "relation": "self", "url": "https://api.medplum.com/fhir/R4/Patient?family=Smith" }
+  ],
+  "entry": [
+    {
+      "fullUrl": "https://api.medplum.com/fhir/R4/Patient/patient-1",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-1",
+        "name": [{ "family": "Smith", "given": ["John"] }]
+      },
+      "search": { "mode": "match" }
+    }
+  ]
+}
+```
+
+| `search.mode` | Meaning |
+|---------------|---------|
+| `match` | Resource matched the search criteria |
+| `include` | Resource was included via `_include` or `_revinclude` |
+| `outcome` | OperationOutcome with warnings |

@@ -1,0 +1,192 @@
+---
+title: "Deploy on Azure"
+description: "Deploy Medplum on Azure using AKS, Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, and Azure Blob Storage."
+---
+
+The Azure deployment uses Terraform to provision static infrastructure and a Helm chart to deploy the Medplum application into AKS. This is a beta option validated for production use.
+
+<Warning>
+  This process requires strong familiarity with Azure, Terraform, Kubernetes, and Helm. Contact [hello@medplum.com](mailto:hello@medplum.com) or [join Discord](https://discord.gg/medplum) if you have questions.
+</Warning>
+
+## Architecture
+
+| Component | Azure service |
+|---|---|
+| API server | AKS (Kubernetes) |
+| API ingress | Azure Application Gateway |
+| Database | PostgreSQL Flexible Server |
+| Cache / queues | Azure Cache for Redis |
+| Object storage | Azure Blob Storage |
+| Frontend CDN | Azure CDN (Front Door) |
+| Secrets | Azure Key Vault |
+| TLS certificates | Azure App Service Managed Certificates |
+
+The deployment is split into two layers: Terraform provisions all static infrastructure, and a Helm chart deploys the Medplum backend into the AKS cluster.
+
+## Prerequisites
+
+- [Terraform](https://www.terraform.io/downloads.html) installed locally
+- Azure subscription with billing enabled
+- Azure CLI installed and authenticated (`az login`)
+- `kubectl` and `helm` installed locally
+
+## Deployment steps
+
+<Steps>
+  <Step title="Prepare TLS certificates">
+    Generate managed certificates using Azure App Service, then export them to a Key Vault. This step must be completed **before** running Terraform because the CDN requires the certificate for custom domains.
+
+    ```bash
+    # Export cert from Key Vault and create a Kubernetes TLS secret
+    az keyvault secret show \
+        --vault-name $KEYVAULT_NAME \
+        --name $CERT_SECRET_NAME \
+        --query value -o tsv | base64 -d > mycert.pfx
+
+    openssl pkcs12 -in mycert.pfx -clcerts -nokeys -out mycert.crt -passin pass:
+    openssl pkcs12 -in mycert.pfx -nocerts -nodes -out mycert.key -passin pass:
+
+    kubectl create secret tls api-certificate \
+      --namespace medplum \
+      --cert=mycert.crt \
+      --key=mycert.key
+    ```
+  </Step>
+
+  <Step title="Deploy infrastructure with Terraform">
+    Clone the repository and navigate to the Azure Terraform directory:
+
+    ```bash
+    git clone https://github.com/medplum/medplum
+    cd medplum/terraform/azure/
+    ```
+
+    Edit `terraform.tfvars` with your values:
+
+    ```hcl
+    resource_group_name       = "medplum"
+    location                  = "eastus2"
+    app_domain                = "app.yourdomain.com"
+    app_certificate_secret_id = "https://your-keyvault.vault.azure.net/certificates/your-cert-id"
+    tags = { app = "medplum" }
+    ```
+
+    Then initialize and apply:
+
+    ```bash
+    terraform init
+    terraform plan
+    terraform apply
+    ```
+
+    Note the outputs — you will need them in subsequent steps:
+
+    ```
+    api_ip                            = "x.x.x.x"
+    cdn_endpoint                      = "medplumapp-endpoint.azurefd.net"
+    medplum_server_identity_client_id = "..."
+    postgresql_dns_record             = "medplum.postgres.database.azure.com"
+    redis_hostname                    = "medplum.redis.cache.windows.net"
+    ```
+  </Step>
+
+  <Step title="Create the configuration secret">
+    Store the Medplum server config as a JSON secret in Key Vault:
+
+    ```json
+    {
+      "port": 8103,
+      "baseUrl": "https://api.yourdomain.com/",
+      "database": {
+        "host": "YOUR_POSTGRESQL_DNS",
+        "port": 5432,
+        "dbname": "medplum",
+        "username": "medplumadmin",
+        "password": "YOUR_DB_PASSWORD"
+      },
+      "redis": {
+        "host": "YOUR_REDIS_HOSTNAME",
+        "port": 6380,
+        "password": "YOUR_REDIS_PASSWORD",
+        "tls": true
+      }
+    }
+    ```
+
+    Push to Key Vault:
+
+    ```bash
+    az keyvault secret set \
+      --vault-name "my-keyvault" \
+      --name "medplum-config" \
+      --file "secret_data.json"
+    ```
+  </Step>
+
+  <Step title="Configure DNS">
+    Using the Terraform outputs, create DNS records in your provider:
+
+    - `api.yourdomain.com` → A record pointing to `api_ip`
+    - `app.yourdomain.com` → CNAME pointing to `cdn_endpoint`
+  </Step>
+
+  <Step title="Deploy the backend with Helm">
+    Get AKS credentials and deploy via Helm:
+
+    ```bash
+    az aks get-credentials \
+      --resource-group MY_RESOURCE_GROUP \
+      --name AKS_NAME \
+      --overwrite-existing --admin
+
+    cd medplum/helm
+    ```
+
+    Edit `values.yaml`:
+
+    ```yaml
+    global:
+      cloudProvider: azure
+      azure:
+        keyVaultURL: "https://my-keyvault.vault.azure.net/"
+        secretName: "medplum-config"
+
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
+
+    ingress:
+      deploy: true
+      domain: api.yourdomain.com
+      tlsSecretName: api-certificate
+    ```
+
+    Install the chart:
+
+    ```bash
+    helm install medplum-server . -n medplum --create-namespace -f values.yaml
+    ```
+  </Step>
+
+  <Step title="Deploy the frontend">
+    Build the app with your API URL baked in, then upload to the CDN storage account:
+
+    ```bash
+    # In the root of the cloned repo
+    echo "MEDPLUM_BASE_URL=https://api.yourdomain.com/" > packages/app/.env
+    npm ci --include dev
+    npm run build:fast
+
+    STORAGE_ACCOUNT=medplumapp ./scripts/deploy-app-azure.sh
+    ```
+  </Step>
+</Steps>
+
+## Clean up
+
+```bash
+terraform destroy
+```
+
+This destroys all Terraform-managed resources including the AKS cluster and static IP addresses.

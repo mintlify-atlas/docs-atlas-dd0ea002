@@ -1,0 +1,107 @@
+---
+title: "API Reference"
+description: "Complete reference for Medplum's FHIR REST API, GraphQL API, OAuth 2.0 endpoints, and admin APIs."
+---
+
+Medplum exposes a standards-based REST API built on FHIR R4. All endpoints require HTTPS with TLS 1.2 or higher.
+
+## Base URLs
+
+| Environment | Base URL |
+|-------------|----------|
+| Medplum Cloud | `https://api.medplum.com` |
+| Self-hosted | `https://your-domain.example.com` |
+
+The FHIR base path is `/fhir/R4`. For example: `https://api.medplum.com/fhir/R4/Patient`.
+
+## Authentication
+
+All requests must include a Bearer token in the `Authorization` header:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Obtain an access token via the [OAuth 2.0 token endpoint](/api/oauth/index) using the authorization code flow, client credentials flow, or SMART on FHIR launch.
+
+## Content types
+
+| Use case | Content-Type |
+|----------|-------------|
+| FHIR resources | `application/fhir+json` |
+| Auth and admin endpoints | `application/json` |
+| OAuth token requests | `application/x-www-form-urlencoded` |
+
+## API sections
+
+<Columns cols={2}>
+  <Card title="FHIR REST API" icon="heart-pulse" href="/api/fhir/overview">
+    Create, read, update, delete, and search FHIR R4 resources.
+  </Card>
+  <Card title="Search parameters" icon="magnifying-glass" href="/api/fhir/search">
+    Filter resources using standard FHIR search parameters, modifiers, and chained search.
+  </Card>
+  <Card title="OAuth 2.0" icon="lock" href="/api/oauth/index">
+    Authorization code, client credentials, and SMART on FHIR flows.
+  </Card>
+  <Card title="Auth endpoints" icon="key" href="/api/auth/index">
+    Login, MFA, password reset, and session management.
+  </Card>
+  <Card title="Project admin" icon="gear" href="/api/project-admin/index">
+    Manage projects, invite members, create bots and client applications.
+  </Card>
+  <Card title="SCIM provisioning" icon="users" href="/api/scim/index">
+    Automated user provisioning and deprovisioning via SCIM 2.0.
+  </Card>
+</Columns>
+
+## Rate limits
+
+Medplum applies rate limiting on all API endpoints. When a rate limit is exceeded, the server returns `429 Too Many Requests`. The response includes a `Retry-After` header indicating how many seconds to wait before retrying.
+
+For high-volume use cases such as bulk data export, use the [Bulk FHIR API](/api/fhir/operations) which is designed for large-scale data access.
+
+## Error format
+
+All errors follow the FHIR [OperationOutcome](https://hl7.org/fhir/R4/operationoutcome.html) format. Each issue includes a `severity` and `code` that maps to standard [FHIR issue types](https://hl7.org/fhir/valueset-issue-type.html).
+
+```json
+{
+  "resourceType": "OperationOutcome",
+  "issue": [
+    {
+      "severity": "error",
+      "code": "invalid",
+      "details": {
+        "text": "Invalid resource type"
+      }
+    }
+  ]
+}
+```
+
+Common HTTP status codes:
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK` | Request succeeded |
+| `201 Created` | Resource created |
+| `400 Bad Request` | Invalid request body or parameters |
+| `401 Unauthorized` | Missing or invalid access token |
+| `403 Forbidden` | Insufficient permissions |
+| `404 Not Found` | Resource does not exist |
+| `409 Conflict` | Version conflict (use `If-Match` to resolve) |
+| `429 Too Many Requests` | Rate limit exceeded |
+| `500 Internal Server Error` | Server error |
+
+## OpenAPI spec
+
+The full OpenAPI 3.1 specification is available at `https://api.medplum.com/openapi.json`.
+
+## Standards compliance
+
+- FHIR R4 (4.0.1)
+- US Core 5.0.1 / USCDI v2
+- SMART App Launch 2.0.0
+- Bulk Data Access 2.0.0
+- ONC Certification (g)(10) Criteria

@@ -1,0 +1,273 @@
+---
+title: "SCIM API"
+description: "SCIM 2.0 endpoints for automated user provisioning and deprovisioning with your identity provider."
+---
+
+Medplum supports [SCIM 2.0](https://www.simplecloud.info/) (System for Cross-domain Identity Management) for automated user lifecycle management. SCIM lets your identity provider (IdP) automatically create, update, and deactivate users in Medplum when employees join, change roles, or leave your organization.
+
+**Base URL:** `https://api.medplum.com/scim/v2`
+
+---
+
+## What is SCIM?
+
+SCIM is an open standard (RFC 7643, RFC 7644) for automating the exchange of user identity information between identity providers and service providers. Instead of manually managing users in Medplum, your IdP (Okta, Azure AD, etc.) pushes changes automatically.
+
+**Common use cases:**
+
+- Automatically create Medplum accounts when a clinician joins the organization
+- Deprovision access when an employee leaves
+- Sync user attributes (name, email, department) from your directory to Medplum
+- Assign users to projects based on IdP group membership
+
+---
+
+## Authentication
+
+SCIM requests require a Bearer token with appropriate admin permissions:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Use a `ClientApplication` with client credentials grant for IdP-initiated SCIM provisioning. See [OAuth 2.0](/api/oauth/index) for obtaining a token.
+
+---
+
+## SCIM User schema
+
+All SCIM User resources use the core schema `urn:ietf:params:scim:schemas:core:2.0:User`.
+
+Medplum requires a `userType` extension to specify the corresponding FHIR profile resource type:
+
+| `userType` | FHIR resource |
+|------------|---------------|
+| `Practitioner` | Created as a `Practitioner` resource |
+| `Patient` | Created as a `Patient` resource |
+| `RelatedPerson` | Created as a `RelatedPerson` resource |
+
+The SCIM `userName` maps to the system-generated FHIR resource ID after creation.
+
+**Example Practitioner:**
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "userType": "Practitioner",
+  "name": {
+    "givenName": "Alice",
+    "familyName": "Smith"
+  },
+  "emails": [{ "value": "alice@example.com" }]
+}
+```
+
+**Example Patient:**
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "userType": "Patient",
+  "name": {
+    "givenName": "Bob",
+    "familyName": "Jones"
+  },
+  "emails": [{ "value": "bob@example.com" }]
+}
+```
+
+---
+
+## GET /scim/v2/Users
+
+List all users in the project.
+
+```bash
+curl https://api.medplum.com/scim/v2/Users \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+  "totalResults": 2,
+  "Resources": [
+    {
+      "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      "id": "user-id-1",
+      "userType": "Practitioner",
+      "userName": "practitioner-id-1",
+      "name": { "givenName": "Alice", "familyName": "Smith" },
+      "emails": [{ "value": "alice@example.com" }],
+      "active": true
+    }
+  ]
+}
+```
+
+---
+
+## POST /scim/v2/Users
+
+Create a new user in the project.
+
+```bash
+curl -X POST https://api.medplum.com/scim/v2/Users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    "userType": "Practitioner",
+    "name": {
+      "givenName": "Alice",
+      "familyName": "Smith"
+    },
+    "userName": "alice@example.com",
+    "emails": [
+      { "value": "alice@example.com" }
+    ]
+  }'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "id": "new-user-id",
+  "userType": "Practitioner",
+  "userName": "practitioner-resource-id",
+  "name": { "givenName": "Alice", "familyName": "Smith" },
+  "emails": [{ "value": "alice@example.com" }],
+  "active": true,
+  "meta": {
+    "resourceType": "User",
+    "location": "https://api.medplum.com/scim/v2/Users/new-user-id"
+  }
+}
+```
+
+---
+
+## GET /scim/v2/Users/{id}
+
+Retrieve a specific user by ID.
+
+```bash
+curl https://api.medplum.com/scim/v2/Users/my-user-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "id": "my-user-id",
+  "userType": "Practitioner",
+  "userName": "practitioner-resource-id",
+  "externalId": "okta-user-id",
+  "name": { "givenName": "Alice", "familyName": "Smith" },
+  "emails": [{ "value": "alice@example.com" }],
+  "active": true
+}
+```
+
+---
+
+## PUT /scim/v2/Users/{id}
+
+Replace a user resource entirely. Include all fields; omitted fields will be cleared.
+
+```bash
+curl -X PUT https://api.medplum.com/scim/v2/Users/my-user-id \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    "id": "my-user-id",
+    "userType": "Practitioner",
+    "externalId": "okta-user-id",
+    "name": {
+      "givenName": "Alice",
+      "familyName": "Johnson"
+    },
+    "userName": "alice@example.com",
+    "emails": [
+      { "value": "alice@example.com" }
+    ],
+    "active": true
+  }'
+```
+
+**Response (200 OK):** Returns the updated user object.
+
+---
+
+## DELETE /scim/v2/Users/{id}
+
+Delete a user from the project. This removes the user's project membership but does not delete their FHIR profile resource (e.g., the `Practitioner` or `Patient` record).
+
+```bash
+curl -X DELETE https://api.medplum.com/scim/v2/Users/my-user-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:** `204 No Content` on success.
+
+<Note>
+Deleting a SCIM user removes their access to the project but preserves the underlying FHIR clinical data. This is intentional to maintain audit history and data integrity.
+</Note>
+
+---
+
+## Setting up SCIM with Okta
+
+<Steps>
+  <Step title="Create a client application">
+    In Medplum, create a `ClientApplication` with client credentials. Note the `client_id` and `client_secret`.
+  </Step>
+  <Step title="Obtain an access token">
+    Use client credentials to get a token:
+
+    ```bash
+    curl -X POST https://api.medplum.com/oauth2/token \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      -d "grant_type=client_credentials&client_id=CLIENT_ID&client_secret=CLIENT_SECRET"
+    ```
+  </Step>
+  <Step title="Configure Okta SCIM provisioning">
+    In your Okta application settings, enable SCIM provisioning and set:
+
+    - **SCIM connector base URL:** `https://api.medplum.com/scim/v2`
+    - **Unique identifier field:** `userName`
+    - **Supported provisioning actions:** Push New Users, Push Profile Updates, Push Groups (optional)
+    - **Authentication mode:** HTTP Header
+    - **Authorization:** `Bearer <access_token>`
+  </Step>
+  <Step title="Test the connection">
+    Use Okta's "Test Connector Configuration" to verify connectivity. Okta will call `GET /scim/v2/Users` to confirm the integration works.
+  </Step>
+</Steps>
+
+## Setting up SCIM with Azure AD
+
+<Steps>
+  <Step title="Create an enterprise application">
+    In Azure AD, create a new Enterprise Application and choose "Non-gallery application".
+  </Step>
+  <Step title="Configure provisioning">
+    Under **Provisioning**, set mode to **Automatic** and configure:
+
+    - **Tenant URL:** `https://api.medplum.com/scim/v2`
+    - **Secret Token:** A Bearer access token obtained via client credentials
+  </Step>
+  <Step title="Map attributes">
+    Configure attribute mappings. Map Azure AD `userPrincipalName` to SCIM `userName`, `givenName` to `name.givenName`, and `surname` to `name.familyName`.
+  </Step>
+  <Step title="Enable provisioning">
+    Set provisioning status to **On** and save. Azure AD will begin syncing users.
+  </Step>
+</Steps>

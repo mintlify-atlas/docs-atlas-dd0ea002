@@ -1,0 +1,334 @@
+---
+title: "Project Admin API"
+description: "Administrative endpoints for managing projects, members, bots, and access policies."
+---
+
+The project admin API provides endpoints for managing Medplum projects and their resources programmatically. Most admin operations require an access token belonging to a project admin.
+
+**Base URL:** `https://api.medplum.com`
+
+<Note>
+Admin endpoints require a project admin or super admin access token. Requests from non-admin users will receive a `403 Forbidden` response.
+</Note>
+
+---
+
+## POST /admin/projects
+
+Create a new Medplum project. This endpoint is only available to super admins.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Project display name |
+| `owner` | object | No | Reference to an existing user to set as project owner |
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Healthcare App"
+  }'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "resourceType": "Project",
+  "id": "new-project-id",
+  "name": "My Healthcare App",
+  "meta": {
+    "lastUpdated": "2024-01-15T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+## GET /admin/projects/{id}
+
+Get details for a specific project.
+
+```bash
+curl https://api.medplum.com/admin/projects/my-project-id \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "resourceType": "Project",
+  "id": "my-project-id",
+  "name": "My Healthcare App",
+  "superAdmin": false,
+  "strictMode": true,
+  "checkReferencesOnWrite": false
+}
+```
+
+---
+
+## POST /admin/projects/{id}/invite
+
+Invite a user to a project. Creates the user if one does not already exist with the given email, creates the appropriate FHIR profile resource, and optionally sends an invitation email.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `resourceType` | string | Yes | Profile type: `Patient`, `Practitioner`, or `RelatedPerson` |
+| `firstName` | string | Yes | First name for the profile resource |
+| `lastName` | string | Yes | Last name for the profile resource |
+| `email` | string | Conditional | User's email address. Required if `externalId` is not provided. |
+| `externalId` | string | Conditional | External identity provider ID. Required if `email` is not provided. |
+| `password` | string | No | Set the user's initial password |
+| `sendEmail` | boolean | No | Send an invitation email (default: `false`) |
+| `scope` | string | No | `project` or `server` (defaults by resource type) |
+| `mfaRequired` | boolean | No | Require MFA enrollment on first login |
+| `upsert` | boolean | No | Update existing user/profile if found, instead of erroring |
+| `forceNewMembership` | boolean | No | Create a new membership even if one already exists |
+| `membership` | object | No | Override fields on the resulting `ProjectMembership` resource |
+
+**Invite a practitioner as project admin:**
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects/my-project-id/invite \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Practitioner",
+    "firstName": "George",
+    "lastName": "Washington",
+    "email": "dr.gw@example.gov",
+    "sendEmail": true,
+    "membership": {
+      "admin": true
+    }
+  }'
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "resourceType": "ProjectMembership",
+  "id": "membership-id",
+  "admin": true,
+  "project": { "reference": "Project/my-project-id" },
+  "user": { "reference": "User/user-id", "display": "dr.gw@example.gov" },
+  "profile": { "reference": "Practitioner/practitioner-id", "display": "George Washington" }
+}
+```
+
+**Invite a patient:**
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects/my-project-id/invite \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Patient",
+    "firstName": "Alice",
+    "lastName": "Chen",
+    "email": "alice.chen@example.com",
+    "sendEmail": true
+  }'
+```
+
+**Invite with MFA required:**
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects/my-project-id/invite \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Practitioner",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "email": "jane.doe@example.com",
+    "mfaRequired": true
+  }'
+```
+
+---
+
+## GET /admin/projects/{id}/members
+
+List all members of a project. Returns an array of `ProjectMembership` resources.
+
+```bash
+curl https://api.medplum.com/admin/projects/my-project-id/members \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (200 OK):**
+
+```json
+[
+  {
+    "resourceType": "ProjectMembership",
+    "id": "membership-1",
+    "admin": true,
+    "project": { "reference": "Project/my-project-id" },
+    "user": { "reference": "User/user-1", "display": "admin@example.com" },
+    "profile": { "reference": "Practitioner/practitioner-1", "display": "Admin User" }
+  },
+  {
+    "resourceType": "ProjectMembership",
+    "id": "membership-2",
+    "admin": false,
+    "project": { "reference": "Project/my-project-id" },
+    "user": { "reference": "User/user-2", "display": "clinician@example.com" },
+    "profile": { "reference": "Practitioner/practitioner-2", "display": "Jane Clinician" }
+  }
+]
+```
+
+---
+
+## DELETE /admin/projects/{id}/members/{membershipId}
+
+Remove a member from a project by deleting their `ProjectMembership`. This does not delete the user or their FHIR profile resource.
+
+```bash
+curl -X DELETE https://api.medplum.com/admin/projects/my-project-id/members/membership-2 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response:** `200 OK` on success.
+
+---
+
+## POST /admin/projects/{id}/bot
+
+Create a new [Bot](/bots/index) in the project. This creates both a `Bot` resource and a corresponding `ProjectMembership`.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Bot display name |
+| `description` | string | No | Human-readable description |
+| `accessPolicy` | object | No | Reference to an `AccessPolicy` resource |
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects/my-project-id/bot \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Lab Results Processor",
+    "description": "Processes incoming lab results and notifies care team",
+    "accessPolicy": {
+      "reference": "AccessPolicy/my-access-policy-id"
+    }
+  }'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "resourceType": "Bot",
+  "id": "bot-id",
+  "name": "Lab Results Processor",
+  "description": "Processes incoming lab results and notifies care team",
+  "runtimeVersion": "awslambda",
+  "sourceCode": {
+    "contentType": "text/typescript",
+    "title": "index.ts",
+    "url": "Binary/binary-id"
+  },
+  "meta": {
+    "project": "my-project-id"
+  }
+}
+```
+
+---
+
+## POST /admin/projects/{id}/client
+
+Create a new `ClientApplication` in the project. Used to register applications that authenticate via OAuth 2.0.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Client application name |
+| `description` | string | No | Human-readable description |
+| `redirectUri` | string | No | Allowed OAuth redirect URI |
+| `accessPolicy` | object | No | Reference to an `AccessPolicy` resource |
+| `identityProvider` | object | No | External identity provider configuration |
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects/my-project-id/client \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Patient Portal",
+    "description": "Patient-facing portal application",
+    "redirectUri": "https://portal.example.com/callback"
+  }'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "resourceType": "ClientApplication",
+  "id": "client-id",
+  "name": "My Patient Portal",
+  "secret": "client-secret-value",
+  "description": "Patient-facing portal application",
+  "redirectUri": "https://portal.example.com/callback",
+  "meta": {
+    "project": "my-project-id"
+  }
+}
+```
+
+<Warning>
+Store the returned `secret` securely. It cannot be retrieved again after creation.
+</Warning>
+
+---
+
+## Access policies
+
+Access policies control what FHIR resource types and operations members of a project can perform. Create an `AccessPolicy` resource via the standard FHIR API, then reference it when inviting users or creating bots and clients.
+
+```bash
+curl -X POST https://api.medplum.com/fhir/R4/AccessPolicy \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/fhir+json" \
+  -d '{
+    "resourceType": "AccessPolicy",
+    "name": "Read-Only Clinician",
+    "resource": [
+      { "resourceType": "Patient", "readonly": true },
+      { "resourceType": "Observation", "readonly": true },
+      { "resourceType": "Encounter", "readonly": true }
+    ]
+  }'
+```
+
+Associate the policy when inviting a user:
+
+```bash
+curl -X POST https://api.medplum.com/admin/projects/my-project-id/invite \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Practitioner",
+    "firstName": "Bob",
+    "lastName": "Reader",
+    "email": "bob.reader@example.com",
+    "membership": {
+      "accessPolicy": { "reference": "AccessPolicy/read-only-policy-id" }
+    }
+  }'
+```

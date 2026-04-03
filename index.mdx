@@ -1,97 +1,103 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Welcome to Medplum"
+description: "Medplum is an open-source healthcare developer platform. Build compliant, FHIR-native applications with a production-ready clinical data repository, SDK, automation engine, and React components."
 ---
 
-## Setting up
+Medplum gives you everything you need to build healthcare applications fast — without starting from scratch on compliance, interoperability, or infrastructure.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Register a project and make your first FHIR API call in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="FHIR Basics" icon="book-open" href="/fhir-basics">
+    Learn the FHIR standard that powers Medplum's data model.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api/index">
+    Explore the full FHIR REST API, GraphQL, and admin endpoints.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Self-Hosting" icon="server" href="/self-hosting/index">
+    Deploy Medplum on AWS, Azure, GCP, or Docker.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can build
 
-Everything you need to create world-class documentation.
+Medplum is a **headless EHR** — a platform layer for healthcare applications. Use it to build patient portals, clinical workflows, lab integrations, remote monitoring apps, and more.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="FHIR Data Store" icon="database" href="/fhir-datastore/index">
+    Store, search, and manage clinical data in a fully FHIR R4-compliant repository.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Automation Bots" icon="bolt" href="/bots/index">
+    Run serverless business logic in response to FHIR events — no servers required.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Authentication" icon="lock" href="/auth/index">
+    OAuth 2.0, SMART-on-FHIR, MFA, and external identity providers out of the box.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="React Components" icon="layer-group" href="/react/index">
+    Pre-built healthcare UI components that connect directly to Medplum data.
   </Card>
-</Columns>
+  <Card title="Integrations" icon="plug" href="/integration/index">
+    Connect to lab networks, e-prescribing, HL7 feeds, and more.
+  </Card>
+  <Card title="Medplum Agent" icon="tower-broadcast" href="/agent/index">
+    Bridge on-premise devices to the cloud via HL7/MLLP, ASTM, and DICOM.
+  </Card>
+</CardGroup>
 
-## Need inspiration?
+## Get started in 4 steps
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Register a project">
+    Create a free account at [app.medplum.com](https://app.medplum.com) and register your first project. Your project is an isolated workspace for your clinical data.
+  </Step>
+  <Step title="Install the SDK">
+    Add `@medplum/core` to your application to start interacting with the FHIR API.
+
+    ```bash
+    npm install @medplum/core @medplum/fhirtypes
+    ```
+  </Step>
+  <Step title="Initialize the client">
+    Create a `MedplumClient` with your project credentials and start reading and writing FHIR resources.
+
+    ```typescript
+    import { MedplumClient } from '@medplum/core';
+
+    const medplum = new MedplumClient({
+      baseUrl: 'https://api.medplum.com/',
+      clientId: 'YOUR_CLIENT_ID',
+    });
+
+    await medplum.startClientLogin('YOUR_CLIENT_ID', 'YOUR_CLIENT_SECRET');
+    ```
+  </Step>
+  <Step title="Create your first resource">
+    Write a Patient resource to your clinical data repository.
+
+    ```typescript
+    const patient = await medplum.createResource({
+      resourceType: 'Patient',
+      name: [{ given: ['Jane'], family: 'Smith' }],
+      birthDate: '1985-03-15',
+    });
+
+    console.log('Created patient:', patient.id);
+    ```
+  </Step>
+</Steps>
+
+## Platform capabilities
+
+| Capability | Details |
+|---|---|
+| **FHIR Version** | R4 (4.0.1) |
+| **Auth** | OAuth 2.0, SMART-on-FHIR, OpenID Connect, SAML |
+| **APIs** | REST, GraphQL, WebSockets |
+| **Compliance** | HIPAA, SOC 2 Type II, ONC, HITRUST |
+| **Deployment** | Cloud (hosted), AWS, Azure, GCP, Docker |
+| **Languages** | TypeScript/JavaScript, any HTTP client |
+
+<Note>
+  Medplum is open source under the Apache 2.0 license. You can self-host the entire stack or use the managed cloud service at [app.medplum.com](https://app.medplum.com).
+</Note>
